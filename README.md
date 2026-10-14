@@ -20,10 +20,14 @@ results and notes). See `docs/project.md` for where things stand and what is bei
 ```sh
 uv sync
 export TORNET_ROOT=~/data/tornet   # catalog.csv plus train/<year>, test/<year>
+uv run onset-convert-weights --verify results/reference/predictions_pretrained_2013_2014_fp32.csv
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run ty check
 ```
+
+The first command downloads the published Keras checkpoint from Hugging Face, writes
+`weights/tornet_detector_v1.pt` (git-ignored) and checks its logits against the reference.
 
 ## Data
 

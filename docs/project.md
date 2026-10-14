@@ -24,9 +24,13 @@ there has the full record):
 
 ## Plan
 
-1. **Weights.** Convert the published `.keras` checkpoint (a zip holding an HDF5 weights file) to
-   a torch state dict with h5py, no Keras. Verify against the fork's saved reference logits
-   (`results/predictions_pretrained_2013_2014.csv`).
+1. **Weights (done 2026-10-14).** `onset-convert-weights` reads `model.weights.h5` out of the
+   published `.keras` zip with h5py and writes `weights/tornet_detector_v1.pt` (26 tensors,
+   4,665,409 parameters), no Keras. `--verify` compares logits with
+   `results/reference/predictions_pretrained_2013_2014_fp32.csv`, the Keras model run in fp32 on
+   CPU over the 3,119-sample 2013–2014 test partition: max difference 1.2e-5. The fork's
+   original reference CSV was produced on the GPU with TF32 convolutions and differs from fp32
+   by up to 1e-2, which is why a fresh fp32 reference was made; the verification turns TF32 off.
 2. **Thin slice on 2015.** Port the data pipeline (catalog, reader, normalisation, CoordConv
    coordinates, two scans in / two targets out), the torch backbone, the U-Net decoder
    (segmentation_models_pytorch) and the authors' head; the training loop with the frozen loss

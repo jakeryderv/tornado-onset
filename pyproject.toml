@@ -53,6 +53,9 @@ known-first-party = ["tornado_onset"]
 include = ["src", "tests"]
 
 [tool.ty.rules]
-# torch and smp ship incomplete stubs; keep these as warnings so `ty check` stays useful.
+# torch types `Module.forward` as a plain callable attribute and `Dataset.__getitem__` generically,
+# so every subclass trips these two; they are warnings, not errors, for that reason only.
+invalid-mutable-override = "warn"
+invalid-method-override = "warn"
 unresolved-attribute = "warn"
 possibly-missing-attribute = "warn"
