@@ -11,9 +11,7 @@ sets the persistence floor (detector on the newest real scan) and the ceiling (d
 real future scan). Everything is PyTorch; the published Keras checkpoint is converted once to a
 state dict.
 
-This repo continues the work in the `jake/dev` branch of the TorNet fork at
-`~/dev/projects/tornet` (Experiments 1–7 and the forecaster fold B runs live there, with their
-results and notes). See `docs/project.md` for where things stand and what is being built.
+See `docs/project.md` for the design, the evaluation protocol and the run log.
 
 ## Setup
 
@@ -33,8 +31,8 @@ The first command downloads the published Keras checkpoint from Hugging Face, wr
 
 ```sh
 export TORNET_ROOT=~/data/tornet
-uv run onset-train configs/smoke_2015.json          # ~10 min on a 12 GB laptop GPU
-uv run onset-train configs/y2015.json               # ~25 min
+uv run onset-train configs/smoke_2015.json                 # 6,000 files, 4 epochs
+uv run onset-train configs/y2015.json                      # the 2015 slice
 uv run onset-score experiments/<run>/checkpoints/last.pt   # rescore any checkpoint
 ```
 
