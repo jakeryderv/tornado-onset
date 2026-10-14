@@ -29,6 +29,20 @@ uv run ty check
 The first command downloads the published Keras checkpoint from Hugging Face, writes
 `weights/tornet_detector_v1.pt` (git-ignored) and checks its logits against the reference.
 
+## Runs
+
+```sh
+export TORNET_ROOT=~/data/tornet
+uv run onset-train configs/smoke_2015.json          # ~10 min on a 12 GB laptop GPU
+uv run onset-train configs/y2015.json               # ~25 min
+uv run onset-score experiments/<run>/checkpoints/last.pt   # rescore any checkpoint
+```
+
+Each run lands under `$EXP_DIR` (default `experiments/`): `params.json`, `history.csv`,
+`checkpoints/{best,last}.pt`, `scores/` (per-view predictions CSVs, `summary.json`, likelihood
+maps, `features.npz`) and `results.json`. Any key in `tornado_onset.config.Config` can be set in
+the JSON or on the command line with `--set key=value`.
+
 ## Data
 
 TorNet v1.1 (Zenodo). The first slice uses 2015 only: the authors' train and test partitions

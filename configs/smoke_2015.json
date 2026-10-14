@@ -1,0 +1,9 @@
+{
+  "_note": "Smoke test: 6,000 training files from 2015, 4 epochs, fewer bootstraps.",
+  "train_years": [2015],
+  "test_years": [2015],
+  "max_files": 6000,
+  "epochs": 4,
+  "bootstrap": 200,
+  "exp_name": "smoke_2015"
+}

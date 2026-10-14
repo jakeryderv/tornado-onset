@@ -1,0 +1,6 @@
+{
+  "_note": "First slice: the 2015 training partition (validation held out by day), scored on the 2015 test partition. Loss design as the fork's fold_b_detector.",
+  "train_years": [2015],
+  "test_years": [2015],
+  "exp_name": "onset_2015"
+}

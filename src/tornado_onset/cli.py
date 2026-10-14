@@ -12,7 +12,11 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-DEFAULT_WEIGHTS = "weights/tornet_detector_v1.pt"
+from tornado_onset.config import DEFAULT_WEIGHTS, load_config
+
+
+def _log() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
 
 
 class _LastScan(Dataset):
@@ -80,16 +84,11 @@ def convert_weights(argv: list[str] | None = None) -> None:
         help="reference predictions CSV to compare logits against; "
         "results/reference/predictions_pretrained_2013_2014_fp32.csv is the Keras model in fp32",
     )
-    p.add_argument(
-        "--tolerance",
-        type=float,
-        default=1e-4,
-        help="max |logit difference| allowed against the fp32 reference",
-    )
+    p.add_argument("--tolerance", type=float, default=1e-4, help="max |logit difference| allowed")
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--workers", type=int, default=8)
     a = p.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(message)s")
+    _log()
     sd = convert(a.keras, a.out)
     logging.info(
         "wrote %s: %d tensors, %d parameters", a.out, len(sd), sum(v.numel() for v in sd.values())
@@ -103,8 +102,65 @@ def convert_weights(argv: list[str] | None = None) -> None:
 
 
 def train(argv: list[str] | None = None) -> None:
-    raise SystemExit("not built yet: see docs/project.md, step 2")
+    from tornado_onset.data import data_root
+    from tornado_onset.train import run
+
+    p = argparse.ArgumentParser(
+        description="Train the onset model from a JSON config and score the best checkpoint."
+    )
+    p.add_argument(
+        "config", nargs="?", help="JSON file overriding the defaults in tornado_onset.config"
+    )
+    p.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        metavar="KEY=JSON",
+        help="override one key, e.g. epochs=1",
+    )
+    a = p.parse_args(argv)
+    _log()
+    run(load_config(a.config, **_overrides(a.set)), data_root())
 
 
 def score(argv: list[str] | None = None) -> None:
-    raise SystemExit("not built yet: see docs/project.md, step 2")
+    """Score an existing checkpoint with the config it was trained with (score-only mode)."""
+    from tornado_onset.data import data_root
+    from tornado_onset.model import build_model
+    from tornado_onset.score import evaluate
+
+    p = argparse.ArgumentParser(description="Score a checkpoint on the config's test years.")
+    p.add_argument("checkpoint", help="a state dict saved by onset-train (best.pt or last.pt)")
+    p.add_argument("--config", help="JSON config; default: params.json next to the checkpoint")
+    p.add_argument("--out", help="output directory; default: <run>/scores_<checkpoint name>")
+    p.add_argument("--set", action="append", default=[], metavar="KEY=JSON")
+    a = p.parse_args(argv)
+    _log()
+    run_dir = os.path.dirname(os.path.dirname(os.path.abspath(a.checkpoint)))
+    if a.config:
+        cfg = load_config(a.config, **_overrides(a.set))
+    else:
+        import json
+
+        with open(os.path.join(run_dir, "params.json")) as f:
+            cfg = load_config(None, **{**json.load(f)["config"], **_overrides(a.set)})
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = build_model(cfg).to(device)
+    model.load_state_dict(torch.load(a.checkpoint, map_location=device))
+    stem = os.path.splitext(os.path.basename(a.checkpoint))[0]
+    out = a.out or os.path.join(run_dir, f"scores_{stem}")
+    evaluate(cfg, model, device, out, data_root())
+    logging.info("wrote %s", out)
+
+
+def _overrides(items: list[str]) -> dict:
+    import json
+
+    out = {}
+    for item in items:
+        key, _, value = item.partition("=")
+        try:
+            out[key] = json.loads(value)
+        except json.JSONDecodeError:
+            out[key] = value
+    return out

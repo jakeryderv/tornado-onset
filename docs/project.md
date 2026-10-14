@@ -31,13 +31,16 @@ there has the full record):
    CPU over the 3,119-sample 2013–2014 test partition: max difference 1.2e-5. The fork's
    original reference CSV was produced on the GPU with TF32 convolutions and differs from fp32
    by up to 1e-2, which is why a fresh fp32 reference was made; the verification turns TF32 off.
-2. **Thin slice on 2015.** Port the data pipeline (catalog, reader, normalisation, CoordConv
-   coordinates, two scans in / two targets out), the torch backbone, the U-Net decoder
-   (segmentation_models_pytorch) and the authors' head; the training loop with the frozen loss
-   design; the scorer (floor / forecast / ceiling / head, pre-onset scoping, paired bootstraps,
-   per-sample table of head logits and pooled features). Validation held out from the 2015
-   training partition by day. Smoke on ~6,000 files, then the full 2015 partition (~25 min
-   locally).
+2. **Thin slice on 2015 (code built 2026-10-14; runs pending).** `onset-train <config.json>`
+   trains and scores; `onset-score <checkpoint>` rescores any checkpoint (score-only mode).
+   Modules: `data` (catalog, reader, normalisation, coordinates, day split, dataset), `tornet`
+   (the published model and its weights), `model` (encoder + U-Net decoder + head, the losses),
+   `train` (loop, checkpoint on best validation head AUC), `score` (floor / forecast / ceiling /
+   head, pre-onset scoping, paired bootstraps, likelihood maps, `features.npz` with head logits
+   and max/mean-pooled bottleneck features per test sample), `metrics`, `config`, `cli`.
+   Configs: `configs/smoke_2015.json` (6,000 files, 4 epochs) and `configs/y2015.json` (the full
+   2015 training partition, 19,721 files, 6 epochs; test partition 3,902 files). The end-to-end
+   test trains one epoch on 24 real files and scores 12.
 3. Later, not now: more years, HRRR join on the per-sample table, longer scan sequences.
 
 ## Decisions
