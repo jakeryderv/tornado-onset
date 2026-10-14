@@ -146,7 +146,7 @@ class Losses:
         weight = batch["weight"].to(dev)[:, None]
         cls = (self.bce(out["logits"], labels) * weight).mean()
         total = cfg.cls_weight * cls
-        parts = {"cls": float(cls)}
+        parts = {"cls": cls.item()}
         if "fields" not in out:
             return total, parts
         err = (out["fields"] - future[:, :, TARGET_CHANNELS]).abs()
@@ -155,7 +155,7 @@ class Losses:
             err = err * sw
         field = err.mean()
         total = total + cfg.field_weight * field
-        parts["field"] = float(field)
+        parts["field"] = field.item()
         if cfg.detector_weight > 0:
             assert self.judge is not None
             last = batch["x"][:, -1].to(dev)
@@ -168,5 +168,5 @@ class Losses:
             )
             det = (self.bce(judged, labels) * weight).mean()
             total = total + cfg.detector_weight * det
-            parts["detector"] = float(det)
+            parts["detector"] = det.item()
         return total, parts

@@ -1,0 +1,52 @@
+{
+  "exp_name": "onset_2015",
+  "expdir": "/home/jake/dev/projects/tornado-onset/experiments/onset_2015_261014_151335",
+  "params": 10128842,
+  "trainable": 10128842,
+  "epochs_run": 6,
+  "best_epoch": 2,
+  "best_checkpoint": "/home/jake/dev/projects/tornado-onset/experiments/onset_2015_261014_151335/checkpoints/best.pt",
+  "last_checkpoint": "/home/jake/dev/projects/tornado-onset/experiments/onset_2015_261014_151335/checkpoints/last.pt",
+  "history_last": {
+    "epoch": 6,
+    "train_loss": 0.9744373724535763,
+    "train_cls": 0.09985310671973714,
+    "train_field": 0.8233701471985189,
+    "train_detector": 0.10242823578482818,
+    "train_AUC_h0": 0.9483433243142377,
+    "train_AUC_h1": 0.9389104319403906,
+    "val_loss": 1.147363378506367,
+    "val_cls": 0.20758968216928836,
+    "val_field": 0.8098468322569775,
+    "val_detector": 0.25985373014685875,
+    "val_AUC_h0": 0.8461067791296257,
+    "val_AUC_h1": 0.825043549417813,
+    "seconds": 180.8940737247467
+  },
+  "git_commit": "b1eef36",
+  "git_dirty": false,
+  "pre_onset_WC_AUC": {
+    "h0": {
+      "persistence": 0.709074299634592,
+      "forecast": 0.6961770568043406,
+      "truth": 0.7639214926364744,
+      "head": 0.7157540693167977
+    },
+    "h1": {
+      "persistence": 0.722027451221764,
+      "forecast": 0.7113079337723888,
+      "truth": 0.7961826798793623,
+      "head": 0.7288693297224103
+    }
+  },
+  "mae": {
+    "h0": {
+      "forecast": 0.3343251049518585,
+      "persistence": 0.3861854672431946
+    },
+    "h1": {
+      "forecast": 0.43620726466178894,
+      "persistence": 0.5260457396507263
+    }
+  }
+}

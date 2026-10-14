@@ -89,7 +89,7 @@ def run_epoch(
             scaler.step(optimizer)
             scaler.update()
         bs = x.shape[0]
-        for k, v in {"loss": float(total), **parts}.items():
+        for k, v in {"loss": total.item(), **parts}.items():
             sums[k] = sums.get(k, 0.0) + v * bs
         n += bs
         logits_all.append(out["logits"].detach().cpu().numpy())

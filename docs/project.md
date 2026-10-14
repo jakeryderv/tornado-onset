@@ -81,18 +81,46 @@ scan. The paired delta vs persistence with its interval is the result.
 
 | config | what | status |
 |---|---|---|
-| `y2015` | the model above on 2015 | running 2026-10-14 |
-| `y2015_head_only` | encoder + head, no decoder, no drawing losses | queued 2026-10-14 |
+| `y2015` | the model above on 2015 | done 2026-10-14, `results/y2015/onset_2015_261014_151335` |
+| `y2015_head_only` | encoder + head, no decoder, no drawing losses | done 2026-10-14, `results/y2015/onset_2015_head_only_261014_153239` |
 | `smoke_2015` | `y2015` on 6,000 files, 4 epochs | utility |
 
-Results go here as they land, with the run directory copied to `results/` without checkpoints.
+### 2015 result (2026-10-14)
+
+Test partition: 3,902 samples, 275 pre-onset cases, 82 ongoing. Pre-onset cases vs warned
+storms (WC AUC), paired bootstrap against persistence in brackets.
+
+| horizon | floor | ceiling | baseline head | head-only | baseline forecast (judge) |
+|---|---|---|---|---|---|
+| +5 min | 0.709 | 0.764 | 0.716 (+0.007 [−0.030, +0.040]) | 0.739 (+0.030 [−0.006, +0.064]) | 0.696 |
+| +10 min | 0.722 | 0.796 | 0.729 (+0.007 [−0.015, +0.031]) | 0.735 (+0.013 [−0.011, +0.038]) | 0.711 |
+
+Head-only minus the baseline head on the same files, pre-onset WC: +0.023 [+0.004, +0.043] at
++5 min, +0.006 [−0.010, +0.021] at +10 min. Baseline: 10.1M parameters, 181 s per epoch, best
+epoch 2. Head-only: 4.9M parameters, 129 s per epoch, best epoch 3. Both overfit after epoch 2
+to 3 on one year of training data (training AUC keeps rising to 0.95 while validation falls).
+
+- **The decoder does not earn its place on 2015.** Head-only is as good at +10 min and better
+  at +5 min, with less than half the parameters and 30% less time per epoch. The drawing losses
+  were supposed to lift the head through the shared encoder; here they do not.
+- **The head beats the floor, and only just.** Head-only is +0.030 / +0.013 over the published
+  detector on the newest scan, intervals touching zero; the ceiling stays 0.055 / 0.074 above
+  the floor. Fine-tuning on one year buys a small, real-looking gain that one test year cannot
+  resolve.
+- **The drawing route is unchanged from before:** the judge on the forecast sits just under the
+  floor (−0.013 / −0.011) while the pixels beat persistence.
+
+**Decision pending.** The evidence says drop the decoder (and segmentation_models_pytorch with
+it) and build on head-only. Before that, two cheap checks are worth a look: a second seed of
+each, since the two runs differ by 0.006 to 0.023 and the seed noise is unknown; and the
+overfitting, which argues for fewer epochs or a lower encoder learning rate on one year.
 
 ## Open questions
 
-- Does the drawing earn its place? `y2015` vs `y2015_head_only` answers it. If head-only ties,
-  the decoder goes. If it loses, the auxiliary signal matters and cheaper conduits are worth
-  trying: supervising the head's own 8×15 map with the judge's heat map on the real future scan,
-  or predicting the judge's bottleneck features on the future scan from the past scans.
+- Does the drawing earn its place? On 2015, no (see the result above). Open: seed variance, and
+  whether the judge can help the head some cheaper way, e.g. supervising the head's own 8×15 map
+  with the judge's heat map on the real future scan.
+- Overfitting on one year: fewer epochs, a lower encoder learning rate, or more years.
 - More years, and a longer history than two scans.
 - Environmental fields (HRRR) joined on `features.npz`.
 
