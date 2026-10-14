@@ -55,4 +55,4 @@ include = ["src", "tests"]
 [tool.ty.rules]
 # torch and smp ship incomplete stubs; keep these as warnings so `ty check` stays useful.
 unresolved-attribute = "warn"
-possibly-unbound-attribute = "warn"
+possibly-missing-attribute = "warn"
