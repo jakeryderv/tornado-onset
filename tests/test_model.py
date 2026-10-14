@@ -27,11 +27,16 @@ def tiny_batch(b: int = 2, n_in: int = 2, horizons: int = 2, seed: int = 0) -> d
     }
 
 
-def test_forward_shapes() -> None:
-    m = OnsetModel(n_in=2, horizons=2, start_filters=8, decoder_channels=[32, 16, 8, 8]).eval()
+@pytest.mark.parametrize("decoder", [True, False])
+def test_forward_shapes(decoder: bool) -> None:
+    m = OnsetModel(
+        n_in=2, horizons=2, start_filters=8, decoder_channels=[32, 16, 8, 8], decoder=decoder
+    ).eval()
     b = tiny_batch()
     out = m(b["x"], b["coords"])
-    assert out["fields"].shape == (2, 2, len(TARGET_CHANNELS), AZ, RNG)
+    assert m.draws == decoder == ("fields" in out)
+    if decoder:
+        assert out["fields"].shape == (2, 2, len(TARGET_CHANNELS), AZ, RNG)
     assert out["cls_map"].shape == (2, 2, -(-AZ // 16), -(-RNG // 16))
     assert out["logits"].shape == (2, 2)
     assert out["features"].shape[:2] == (2, 2 * 8 * 8)
@@ -66,6 +71,18 @@ def test_losses_route_gradients(heatmap_weight: float, detector_weight: float) -
     assert all(p.grad is None for p in judge.parameters())  # the judge never learns
 
 
+def test_head_only_trains_without_drawing_losses() -> None:
+    cfg = Config(decoder=False, field_weight=0.0, heatmap_weight=0.0, detector_weight=0.0)
+    m = OnsetModel(n_in=2, horizons=2, start_filters=8, decoder=False)
+    b = tiny_batch()
+    total, parts = Losses(cfg, torch.device("cpu"), None)(m(b["x"], b["coords"]), b)
+    assert set(parts) == {"cls"}
+    total.backward()
+    assert all(p.grad is not None for p in m.encoder.parameters())
+    with pytest.raises(ValueError, match="head-only"):
+        Config(decoder=False)
+
+
 def test_cls_weight_zero_leaves_head_untrained() -> None:
     cfg = Config(cls_weight=0.0, heatmap_weight=0.0, detector_weight=0.0)
     m = OnsetModel(n_in=2, horizons=2, start_filters=8, decoder_channels=[32, 16, 8, 8])
@@ -80,6 +97,8 @@ def test_config_rejects_unknown_keys(tmp_path) -> None:
     p.write_text(json.dumps({"epochs": 1, "bogus": 2}))
     with pytest.raises(ValueError, match="bogus"):
         load_config(p)
+    p.write_text(json.dumps({"epochs": 1, "_note": "ignored"}))
+    assert load_config(p).epochs == 1
     cfg = load_config(None, epochs=1, sample_weights={"w2": 3.0})
     assert cfg.sample_weights["w2"] == 3.0 and cfg.sample_weights["wW"] == 0.5
 

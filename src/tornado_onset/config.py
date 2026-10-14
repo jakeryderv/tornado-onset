@@ -31,6 +31,7 @@ class Config:
     # model
     weights: str = DEFAULT_WEIGHTS  # the converted published detector: encoder init + judge
     encoder_trainable: bool = True
+    decoder: bool = True  # False: head-only, no drawing and no drawing losses
     start_filters: int = 48
     decoder_channels: list[int] = field(default_factory=lambda: [256, 128, 64, 32])
     # losses
@@ -62,17 +63,22 @@ class Config:
             raise ValueError("a TorNet sample has four scans: n_in + horizons must be <= 4")
         if not 0 <= self.val_fraction < 1:
             raise ValueError("val_fraction must be in [0, 1)")
+        if not self.decoder and (self.field_weight or self.heatmap_weight or self.detector_weight):
+            raise ValueError(
+                "decoder=false is head-only: set field_weight, heatmap_weight and detector_weight to 0"
+            )
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
 
 
 def load_config(path: str | Path | None = None, **overrides: Any) -> Config:
-    """Defaults, then the JSON file, then keyword overrides. Unknown keys are an error."""
+    """Defaults, then the JSON file, then keyword overrides. Unknown keys are an error; keys
+    starting with `_` (notes) are ignored."""
     values: dict[str, Any] = {}
     if path is not None:
         with open(path) as f:
-            values.update(json.load(f))
+            values.update({k: v for k, v in json.load(f).items() if not k.startswith("_")})
     values.update(overrides)
     known = {f.name for f in dataclasses.fields(Config)}
     unknown = set(values) - known

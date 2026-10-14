@@ -7,7 +7,9 @@
     U-Net decoder (segmentation_models_pytorch) -> drawn future VEL + DBZ at each horizon
     bottleneck features -> the authors' head: per-cell logits, max -> P(tornado) per horizon
 
-Two outputs, two routes to "tornado at +h". The head is the product. The drawing is the auxiliary
+Two outputs, two routes to "tornado at +h". The head is the product. With `decoder: false`
+the model is head-only: encoder and classification head, trained by the head's cross-entropy
+alone, the ablation that says whether the drawing earns its place. The drawing is the auxiliary
 signal: its loss terms reach the shared encoder and that is what lifts the head (fold B in the
 fork: 0.741 -> 0.757 WC AUC at +10 min). The frozen published detector (the judge) sits inside
 the loss, reading the drawn chip; its weights never move.
@@ -43,19 +45,29 @@ class OnsetModel(nn.Module):
         horizons: int = 2,
         start_filters: int = 48,
         decoder_channels: list[int] | None = None,
+        decoder: bool = True,
     ):
         super().__init__()
-        from segmentation_models_pytorch.base import SegmentationHead
-        from segmentation_models_pytorch.decoders.unet.decoder import UnetDecoder
-
         self.n_in, self.horizons = n_in, horizons
         self.encoder = TorNetEncoder(start_filters=start_filters)
         enc_channels = [c * n_in for c in self.encoder.out_channels]
         self.feature_channels = enc_channels[-1]
-        dec = list(decoder_channels or [256, 128, 64, 32])
-        self.decoder = UnetDecoder(enc_channels, dec, n_blocks=len(dec), use_norm="batchnorm")
-        self.regression = SegmentationHead(dec[-1], horizons * len(TARGET_CHANNELS), kernel_size=3)
+        self.decoder: nn.Module | None = None
+        self.regression: nn.Module | None = None
+        if decoder:
+            from segmentation_models_pytorch.base import SegmentationHead
+            from segmentation_models_pytorch.decoders.unet.decoder import UnetDecoder
+
+            dec = list(decoder_channels or [256, 128, 64, 32])
+            self.decoder = UnetDecoder(enc_channels, dec, n_blocks=len(dec), use_norm="batchnorm")
+            self.regression = SegmentationHead(
+                dec[-1], horizons * len(TARGET_CHANNELS), kernel_size=3
+            )
         self.classification = TorNetHead(enc_channels[-1], out_channels=horizons)
+
+    @property
+    def draws(self) -> bool:
+        return self.decoder is not None
 
     def encode(self, x: torch.Tensor, coords: torch.Tensor) -> list[torch.Tensor]:
         """(B, n_in, 14, A, R) -> feature pyramid with the scans side by side in channels."""
@@ -65,20 +77,24 @@ class OnsetModel(nn.Module):
 
     def forward(self, x: torch.Tensor, coords: torch.Tensor) -> dict[str, torch.Tensor]:
         feats = self.encode(x, coords)
-        fields = self.regression(self.decoder(feats))
-        b, _, a, r = fields.shape
         cls_map = self.classification.heat(feats[-1])  # (B, horizons, 8, 15)
-        return {
-            "fields": fields.reshape(b, self.horizons, len(TARGET_CHANNELS), a, r),
+        out = {
             "cls_map": cls_map,
             "logits": cls_map.amax(dim=(2, 3)),
             "features": feats[-1],  # (B, n_in * 384, 8, 15), for the per-sample table
         }
+        if self.decoder is not None and self.regression is not None:
+            fields = self.regression(self.decoder(feats))
+            b, _, a, r = fields.shape
+            out["fields"] = fields.reshape(b, self.horizons, len(TARGET_CHANNELS), a, r)
+        return out
 
 
 def build_model(cfg: Config) -> OnsetModel:
     """The model with its encoder initialised from the converted published weights."""
-    model = OnsetModel(cfg.n_in, cfg.horizons, cfg.start_filters, cfg.decoder_channels)
+    model = OnsetModel(
+        cfg.n_in, cfg.horizons, cfg.start_filters, cfg.decoder_channels, decoder=cfg.decoder
+    )
     sd = torch.load(cfg.weights, map_location="cpu")
     enc = {k.removeprefix("encoder."): v for k, v in sd.items() if k.startswith("encoder.")}
     model.encoder.load_state_dict(enc, strict=True)
@@ -128,14 +144,18 @@ class Losses:
         coords = batch["coords"].to(dev)
         labels = batch["labels"].to(dev)
         weight = batch["weight"].to(dev)[:, None]
+        cls = (self.bce(out["logits"], labels) * weight).mean()
+        total = cfg.cls_weight * cls
+        parts = {"cls": float(cls)}
+        if "fields" not in out:
+            return total, parts
         err = (out["fields"] - future[:, :, TARGET_CHANNELS]).abs()
         sw = self.spatial_weight(future, coords)
         if sw is not None:
             err = err * sw
         field = err.mean()
-        cls = (self.bce(out["logits"], labels) * weight).mean()
-        total = cfg.field_weight * field + cfg.cls_weight * cls
-        parts = {"field": float(field), "cls": float(cls)}
+        total = total + cfg.field_weight * field
+        parts["field"] = float(field)
         if cfg.detector_weight > 0:
             assert self.judge is not None
             last = batch["x"][:, -1].to(dev)
