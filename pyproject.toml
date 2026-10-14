@@ -1,0 +1,58 @@
+[project]
+name = "tornado-onset"
+version = "0.1.0"
+description = "Predict tornado onset from the radar scans before it appears: a fine-tuned TorNet backbone, a detector-aware radar forecaster as auxiliary signal, and the frozen published detector as judge"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+authors = [{ name = "Jake Van Slyke" }]
+dependencies = [
+  "torch>=2.7",
+  "numpy>=2.0",
+  "pandas>=2.0",
+  "xarray>=2024.1",
+  "netCDF4>=1.7",
+  "scikit-learn>=1.5",
+  "h5py>=3.10",
+  "huggingface_hub>=0.25",
+  "segmentation-models-pytorch>=0.5.0",
+]
+
+[project.scripts]
+onset-convert-weights = "tornado_onset.cli:convert_weights"
+onset-train = "tornado_onset.cli:train"
+onset-score = "tornado_onset.cli:score"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.12", "ty>=0.0.85"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tornado_onset"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tornado_onset"]
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.ty.rules]
+# torch and smp ship incomplete stubs; keep these as warnings so `ty check` stays useful.
+unresolved-attribute = "warn"
+possibly-unbound-attribute = "warn"

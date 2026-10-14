@@ -1,0 +1,22 @@
+# python / uv
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# runs, checkpoints and data never live in the repo
+experiments/
+*.pt
+*.keras
+*.h5
+*.nc
+data/
+
+# editors
+.vscode/
+.idea/
+*.swp
