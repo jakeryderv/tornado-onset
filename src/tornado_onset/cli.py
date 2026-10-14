@@ -40,8 +40,7 @@ def verify_reference(
 ) -> float:
     """Run the converted detector over the files in a reference predictions CSV and return the
     largest absolute logit difference."""
-    from sklearn.metrics import roc_auc_score
-
+    from tornado_onset.metrics import roc_auc
     from tornado_onset.tornet import load_detector
 
     ref = pd.read_csv(reference_csv)
@@ -63,8 +62,8 @@ def verify_reference(
         len(out),
         diff.max(),
         diff.mean(),
-        roc_auc_score(ref["label"], out),
-        roc_auc_score(ref["label"], ref["logit"]),
+        roc_auc(ref["label"].to_numpy(bool), out),
+        roc_auc(ref["label"].to_numpy(bool), ref["logit"].to_numpy()),
     )
     return float(diff.max())
 

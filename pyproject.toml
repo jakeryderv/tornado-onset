@@ -12,16 +12,15 @@ dependencies = [
   "pandas>=2.0",
   "xarray>=2024.1",
   "netCDF4>=1.7",
-  "scikit-learn>=1.5",
   "h5py>=3.10",
   "huggingface_hub>=0.25",
-  "segmentation-models-pytorch>=0.5.0",
 ]
 
 [project.scripts]
 onset-convert-weights = "tornado_onset.cli:convert_weights"
 onset-train = "tornado_onset.cli:train"
 onset-score = "tornado_onset.cli:score"
+onset-summary = "tornado_onset.summary:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.12", "ty>=0.0.85"]

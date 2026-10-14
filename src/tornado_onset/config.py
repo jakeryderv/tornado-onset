@@ -1,10 +1,7 @@
 """Run configuration: a dataclass with the agreed defaults, overridden by a JSON file.
 
-The loss design is fixed to what worked on fold B in the TorNet fork (heat-map-weighted L1 on
-velocity and reflectivity, the frozen detector's cross-entropy on the drawn chip, cross-entropy on
-the classification head). The weights of those three terms stay configurable so a control
-(`heatmap_weight` 0, `detector_weight` 0) or a `cls_weight` 0 ablation is one JSON line, but
-there are no channel-scope, anchor or bottleneck options.
+The model is the fine-tuned TorNet encoder with the authors' head; the loss is the head's
+weighted cross-entropy. Training stops early on the validation head AUC.
 """
 
 from __future__ import annotations
@@ -31,19 +28,15 @@ class Config:
     # model
     weights: str = DEFAULT_WEIGHTS  # the converted published detector: encoder init + judge
     encoder_trainable: bool = True
-    decoder: bool = True  # False: head-only, no drawing and no drawing losses
     start_filters: int = 48
-    decoder_channels: list[int] = field(default_factory=lambda: [256, 128, 64, 32])
-    # losses
-    field_weight: float = 1.0
-    heatmap_weight: float = 2.0  # spatial weight = 1 + heatmap_weight * judge heat map on truth
+    # loss
     cls_weight: float = 1.0
-    detector_weight: float = 0.5  # the judge's cross-entropy on the drawn chip
     sample_weights: dict[str, float] = field(
         default_factory=lambda: {"wN": 1.0, "w0": 1.0, "w1": 1.0, "w2": 2.0, "wW": 0.5}
     )
     # training
-    epochs: int = 6
+    epochs: int = 8  # cap; early stopping usually ends sooner
+    patience: int = 2  # stop after this many epochs without a validation head-AUC gain (0: off)
     batch_size: int = 16
     learning_rate: float = 1e-4
     encoder_lr_scale: float = 0.1
@@ -63,10 +56,6 @@ class Config:
             raise ValueError("a TorNet sample has four scans: n_in + horizons must be <= 4")
         if not 0 <= self.val_fraction < 1:
             raise ValueError("val_fraction must be in [0, 1)")
-        if not self.decoder and (self.field_weight or self.heatmap_weight or self.detector_weight):
-            raise ValueError(
-                "decoder=false is head-only: set field_weight, heatmap_weight and detector_weight to 0"
-            )
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)

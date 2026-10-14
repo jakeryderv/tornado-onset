@@ -1,6 +1,6 @@
 """Training: AdamW with a smaller learning rate on the fine-tuned encoder, cosine schedule,
-mixed precision, gradient clipping; the checkpoint with the best mean validation head AUC is
-kept (the head is the product) and scored."""
+mixed precision, gradient clipping; early stopping on the mean validation head AUC, whose best
+checkpoint is kept and scored."""
 
 from __future__ import annotations
 
@@ -123,7 +123,7 @@ def fit(
     os.makedirs(ckpt_dir, exist_ok=True)
     best_path, last_path = os.path.join(ckpt_dir, "best.pt"), os.path.join(ckpt_dir, "last.pt")
     history: list[dict[str, Any]] = []
-    best = -np.inf
+    best, since_best = -np.inf, 0
     for epoch in range(1, cfg.epochs + 1):
         t0 = time.time()
         row: dict[str, Any] = {"epoch": epoch}
@@ -140,9 +140,11 @@ def fit(
             row.update({f"val_{k}": v for k, v in va.items()})
             score = float(np.nanmean([v for k, v in va.items() if k.startswith("AUC_h")]))
             if score > best:
-                best = score
+                best, since_best = score, 0
                 row["best"] = True
                 torch.save(model.state_dict(), best_path)
+            else:
+                since_best += 1
         scheduler.step()
         row["seconds"] = time.time() - t0
         history.append(row)
@@ -150,6 +152,9 @@ def fit(
         logging.info(
             " ".join(f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}" for k, v in row.items())
         )
+        if cfg.patience and since_best >= cfg.patience:
+            logging.info("early stop: no validation gain for %d epochs", cfg.patience)
+            break
     torch.save(model.state_dict(), last_path)
     if not os.path.exists(best_path):
         best_path = last_path
@@ -193,9 +198,7 @@ def run(cfg: Config, root: str) -> dict[str, Any]:
     logging.info("model: %s params, %s trainable", f"{n_params:,}", f"{n_train:,}")
     with open(os.path.join(expdir, "params.json"), "w") as f:
         json.dump({"config": cfg.to_dict(), "params": n_params, "trainable": n_train}, f, indent=2)
-    history, best_path, last_path = fit(
-        cfg, model, Losses(cfg, device, judge), device, expdir, root
-    )
+    history, best_path, last_path = fit(cfg, model, Losses(cfg, device), device, expdir, root)
     model.load_state_dict(torch.load(best_path, map_location=device))
     summary = evaluate(cfg, model, device, os.path.join(expdir, "scores"), root, judge)
     commit, dirty = git_revision()

@@ -5,11 +5,10 @@ next 5 and 10 minutes when none is visible yet?
 
 The model is the published [TorNet](https://github.com/mit-ll/tornet) backbone
 ([weights on Hugging Face](https://huggingface.co/tornet-ml/tornado_detector_baseline_v1))
-fine-tuned on that target. A radar forecaster decoder, trained with a detector-aware loss, is the
-auxiliary signal that keeps the encoder honest; the frozen published detector is the judge that
-sets the persistence floor (detector on the newest real scan) and the ceiling (detector on the
-real future scan). Everything is PyTorch; the published Keras checkpoint is converted once to a
-state dict.
+fine-tuned on that target, with the authors' head on top. The frozen published detector is the
+judge that sets the persistence floor (detector on the newest real scan) and the ceiling
+(detector on the real future scan). Everything is PyTorch; the published Keras checkpoint is
+converted once to a state dict.
 
 See `docs/project.md` for the design, the evaluation protocol and the run log.
 
@@ -33,7 +32,9 @@ The first command downloads the published Keras checkpoint from Hugging Face, wr
 export TORNET_ROOT=~/data/tornet
 uv run onset-train configs/smoke_2015.json                 # 6,000 files, 4 epochs
 uv run onset-train configs/y2015.json                      # the 2015 slice
+uv run onset-train configs/y2015.json --set seed=2          # another seed
 uv run onset-score experiments/<run>/checkpoints/last.pt   # rescore any checkpoint
+uv run onset-summary                                       # every finished run, one table
 ```
 
 Each run lands under `$EXP_DIR` (default `experiments/`): `params.json`, `history.csv`,
