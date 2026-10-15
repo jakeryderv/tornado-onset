@@ -76,7 +76,7 @@ def run_epoch(
             torch.set_grad_enabled(training),
             torch.autocast(device.type, enabled=cfg.amp and device.type == "cuda"),
         ):
-            out = model(x, coords)
+            out = model(x, coords, batch["minutes"].to(device), batch["dt_in"].to(device))
             out = {k: v.float() for k, v in out.items()}
             total, parts = losses(out, batch)
         if training:
@@ -198,7 +198,7 @@ def run(cfg: Config) -> dict[str, Any]:
     logging.info("model: %s params, %s trainable", f"{n_params:,}", f"{n_train:,}")
     with open(os.path.join(expdir, "params.json"), "w") as f:
         json.dump({"config": cfg.to_dict(), "params": n_params, "trainable": n_train}, f, indent=2)
-    history, best_path, last_path = fit(cfg, model, Losses(cfg, device), device, expdir)
+    history, best_path, last_path = fit(cfg, model, Losses(cfg, device, model), device, expdir)
     model.load_state_dict(torch.load(best_path, map_location=device))
     summary = evaluate(cfg, model, device, os.path.join(expdir, "scores"), judge)
     commit, dirty = git_revision()

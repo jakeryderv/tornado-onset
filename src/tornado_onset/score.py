@@ -71,7 +71,7 @@ def evaluate(
     for batch in loader:
         x, coords = batch["x"].to(device), batch["coords"].to(device)
         with torch.autocast(device.type, enabled=cfg.amp and device.type == "cuda"):
-            out = model(x, coords)
+            out = model(x, coords, batch["minutes"].to(device), batch["dt_in"].to(device))
         head_logits = out["logits"].float().cpu().numpy()
         head_map = out["cls_map"].float().cpu().numpy()
         feats = out["features"].float()

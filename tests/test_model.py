@@ -22,29 +22,60 @@ def tiny_batch(b: int = 2, n_in: int = 2, horizons: int = 2, seed: int = 0) -> d
         "labels": torch.tensor([[0.0, 1.0], [1.0, 1.0]])[:b],
         "frame_labels": torch.tensor([[0.0, 0.0, 0.0, 1.0], [0.0, 0.0, 1.0, 1.0]])[:b],
         "minutes": torch.tensor([[5.0, 10.0]] * b),
+        "dt_in": torch.tensor([5.0] * b),
         "weight": torch.ones(b),
         "meta": [{"filename": f"f{i}"} for i in range(b)],
     }
 
 
-def test_forward_shapes() -> None:
-    m = OnsetModel(n_in=2, horizons=2, start_filters=8).eval()
+@pytest.mark.parametrize("combiner", ["concat", "extrapolate"])
+def test_forward_shapes(combiner: str) -> None:
+    m = OnsetModel(n_in=2, horizons=2, start_filters=8, combiner=combiner).eval()
     b = tiny_batch()
-    out = m(b["x"], b["coords"])
+    out = m(b["x"], b["coords"], b["minutes"], b["dt_in"])
     assert out["cls_map"].shape == (2, 2, -(-AZ // 16), -(-RNG // 16))
     assert out["logits"].shape == (2, 2)
     assert out["features"].shape[:2] == (2, 2 * 8 * 8)
     assert torch.equal(out["logits"], out["cls_map"].amax(dim=(2, 3)))
+    if combiner == "extrapolate":
+        assert out["future_features"].shape == (2, 2, 8 * 8, -(-AZ // 16), -(-RNG // 16))
+        assert m.head.heatmap.out_channels == 1  # one shared head, the published shape
 
 
-def test_loss_reaches_encoder_and_head() -> None:
-    m = OnsetModel(n_in=2, horizons=2, start_filters=8)
+def test_extrapolate_is_linear_in_lead() -> None:
+    m = OnsetModel(n_in=2, horizons=2, start_filters=8, combiner="extrapolate").eval()
     b = tiny_batch()
-    total, parts = Losses(Config(), torch.device("cpu"))(m(b["x"], b["coords"]), b)
-    assert set(parts) == {"cls"} and torch.isfinite(total)
+    per_scan = m.scan_features(b["x"], b["coords"])
+    f = m.extrapolate(per_scan, b["minutes"], b["dt_in"])
+    new, old = per_scan[:, -1], per_scan[:, -2]
+    assert torch.allclose(f[:, 0], new + (new - old) * (5.0 / 5.0), atol=1e-6)
+    assert torch.allclose(f[:, 1], new + (new - old) * (10.0 / 5.0), atol=1e-6)
+
+
+@pytest.mark.parametrize(
+    "combiner,consistency", [("concat", 0.0), ("extrapolate", 0.0), ("extrapolate", 1.0)]
+)
+def test_loss_reaches_encoder_and_head(combiner: str, consistency: float) -> None:
+    cfg = Config(combiner=combiner, consistency_weight=consistency)
+    m = OnsetModel(n_in=2, horizons=2, start_filters=8, combiner=combiner)
+    b = tiny_batch()
+    out = m(b["x"], b["coords"], b["minutes"], b["dt_in"])
+    total, parts = Losses(cfg, torch.device("cpu"), m)(out, b)
+    assert set(parts) == ({"cls", "consistency"} if consistency else {"cls"})
+    assert torch.isfinite(total)
     total.backward()
     assert all(p.grad is not None for p in m.encoder.parameters())
     assert all(p.grad is not None for p in m.head.parameters())
+
+
+def test_config_combiner_rules() -> None:
+    with pytest.raises(ValueError, match="combiner"):
+        Config(combiner="lstm")
+    with pytest.raises(ValueError, match="extrapolate"):
+        Config(combiner="concat", head_init="pretrained")
+    with pytest.raises(ValueError, match="extrapolate"):
+        Config(combiner="concat", consistency_weight=1.0)
+    Config(combiner="extrapolate", head_init="pretrained", consistency_weight=1.0)
 
 
 def test_config_rejects_unknown_keys(tmp_path) -> None:
@@ -85,7 +116,17 @@ def test_end_to_end_tiny_run(hub_files: dict, tmp_path) -> None:
         s = json.load(f)
     assert len(s["horizons"]) == 2 and s["horizons"][0]["n"] == 256
     assert set(results["pre_onset_WC_AUC"]["h0"]) == {"persistence", "truth", "head"}
-    run(load_config(None, exp_name="u", seed=7, **base))
+    run(
+        load_config(
+            None,
+            exp_name="u",
+            seed=7,
+            combiner="extrapolate",
+            head_init="pretrained",
+            consistency_weight=0.5,
+            **base,
+        )
+    )
     runs = find_runs([str(tmp_path / "exp")])
     assert len(runs) == 2
     rows = [r for run_dir in runs for r in run_rows(run_dir)]

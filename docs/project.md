@@ -50,6 +50,19 @@ the authors' head: 1x1 convs to a per-cell logit map, max over cells
     -> P(tornado at +5), P(tornado at +10)
 ```
 
+**Combiners** (`combiner`). `concat`, the default and the measured model: the two maps side by
+side in channels (768), one head with one output map per horizon. `extrapolate`: with two
+scans a feature's history is a line, so form the slope from the last two maps and extrapolate
+each feature to every horizon with the real scan timing, f(+h) = f_new + (lead_h / dt) ·
+(f_new − f_old), then apply one shared 384-channel head to each f(+h); that head can start
+from the published head's weights (`head_init: pretrained`). Same expressive power as concat
+at two scans, a different inductive bias ("the trend continues") and the real clock instead of
+assumed five-minute spacing. With `consistency_weight` an L1 pulls each f(+h) toward the
+encoder's own features of the real scan at +h (targets detached), the feature-space form of a
+temporal-consistency loss: it asks for a representation whose trend is predictive without
+drawing pixels. Configs `y2015_extrapolate` and `y2015_extrapolate_consistency`; untested as
+of 2026-10-14.
+
 4.9M parameters. One loss: weighted cross-entropy on the head's per-horizon logits against the
 labels of the future scans (the authors' sample weights: EF2+ ×2, warnings ×0.5). AdamW, the
 encoder at a tenth of the learning rate, cosine schedule, mixed precision, early stopping on
@@ -87,7 +100,13 @@ scan. The paired delta vs persistence with its interval is the result.
 | config | what | status |
 |---|---|---|
 | `y2015` | encoder + head on 2015, early stopping | ready; the seed is a `--set seed=N` away |
-| `smoke_2015` | `y2015` on 6,000 files | utility |
+| `y2015_extrapolate` | the extrapolate combiner, shared head from the published weights | ready |
+| `y2015_extrapolate_consistency` | as above plus the feature-space consistency loss | ready |
+| `smoke_2015` | `y2015` on 6,000 samples | utility |
+
+Planned batch on 2015 (not run): `y2015` seeds 1234 (the Hub-loader regression check against
+0.739 / 0.735), 2 and 3; `y2015` with `encoder_lr_scale` 0.03; `y2015` with
+`encoder_trainable` false; the two extrapolate configs. About 15 minutes each.
 
 `onset-summary [roots]` tabulates every finished run (head vs floor and ceiling per config and
 horizon, mean ± sd over seeds); `--compare A B` gives the paired head-vs-head delta per seed.
