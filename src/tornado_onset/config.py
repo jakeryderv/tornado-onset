@@ -26,7 +26,7 @@ class Config:
         default_factory=lambda: {"wN": 1.0, "w0": 1.0, "w1": 1.0, "w2": 2.0, "wW": 0.5}
     )
     # training
-    epochs: int = 8  # cap; early stopping usually ends sooner
+    epochs: int = 5  # cap; early stopping usually ends sooner
     patience: int = 2  # stop after this many epochs without a validation head-AUC gain (0: off)
     batch_size: int = 16
     learning_rate: float = 1e-4
