@@ -62,14 +62,13 @@ a config and a training set is a list of years, and published the detector's wei
 PyTorch state dict next to it^[<https://huggingface.co/jakeryderv/tornet-detector-torch>,
 checked against the Keras original's logits to 2×10^-5^.].
 
-Everything below is 2014 and 2015. Both of us worked from the same two years but cut them
-differently, because we were asking different questions of them. For the detection-task steps
-(1 and 2 below) the data is a 6,414-clip subset split by storm group, so episodes that share
-radar dates stay together and clips near the detector's own training data are excluded: 3,667
-train, 1,325 validation, 1,422 test with 89 positives. For the onset steps (3 and 4) it is the
-authors' full partitions: 37,168 training samples with 15% of days held out for validation,
-and the 6,448-sample test set with its 495 pre-onset cases, 208 of which are already tornadic
-at five minutes and all of which are at ten.
+Everything below is 2014 and 2015, cut two ways for two questions. The detection-task steps
+(1 and 2) use a 6,414-clip subset split by storm group, so episodes sharing radar dates stay
+together and clips near the detector's own training data are excluded: 3,667 train, 1,325
+validation, 1,422 test with 89 positives. The onset steps (3 and 4) use the authors' full
+partitions: 37,168 training samples with 15% of days held out for validation, and the
+6,448-sample test set with its 495 pre-onset cases, 208 of them already tornadic at five
+minutes and all of them at ten.
 
 Every model sees a scan exactly as the published detector does: the detector's normalization,
 fourteen channels with the range-folding masks, and its two coordinate channels. Keeping that
@@ -100,8 +99,8 @@ the head's learning rate in step 4.
 
 # The ladder
 
-The work is five steps that each change one thing. The first two stay on the task the detector
-was built for, to check the ingredients before the task changes.
+Five steps, each changing one thing; the first two stay on the task the detector was built
+for, to check the ingredients before the task changes.
 
 | step | what changes | the question |
 |:--:|:--|:--|
@@ -142,12 +141,12 @@ Step 2 answers yes, with a caveat. Averaging in the scan from five minutes earli
 change that moved validation, 0.658 to 0.675 at the same 385 parameters, and it carried to the
 test set at 0.548. But better ranking did not mean fewer false alarms: at thresholds locked for
 the same recall it found one more tornado than the original detector and raised 288 more false
-alarms, and the paired storm-group bootstrap on its AP gain, [−0.061, +0.155], includes zero.
-Ten test storm groups and 89 positives can't do better. What it does establish is that the
-second scan carries signal the first doesn't, which is what steps 3 and 4 lean on.
+alarms, and the paired storm-group bootstrap on its AP gain, [−0.061, +0.155], includes zero
+on ten test storm groups. What it does establish is that the second scan carries signal the
+first doesn't, which is what steps 3 and 4 lean on.
 
 ![Step 1 and 2 configurations on validation (left) and the held-out test precision-recall
-curves with locked operating points (right).](figures/jg_adaptations_pr.png){#fig-detection width=85%}
+curves with locked operating points (right).](figures/jg_adaptations_pr.png){#fig-detection width=78%}
 
 ## Steps 0, 3 and 4: the onset task
 
@@ -168,7 +167,7 @@ perfect picture of the next scan, read by this detector, adds that much and no m
 anything steps 3 and 4 gain has to fit inside it.
 
 ![Each step's AUC with its 95% interval, between the floor and the ceiling, per
-horizon.](figures/ladder.png){#fig-ladder width=62%}
+horizon.](figures/ladder.png){#fig-ladder width=58%}
 
 Step 3 lands below the floor, and not by noise: −0.032 at +5 and −0.017 at +10, both
 intervals clear of zero. A fresh head on the frozen features, even with two scans to difference,
@@ -189,7 +188,7 @@ forecaster built this way is that it reproduces the detector carried forward, wh
 tool a forecaster already has.
 
 ![Validation AUC and loss per epoch for steps 3 and 4; the star marks the checkpoint
-kept.](figures/training.png){#fig-training width=62%}
+kept.](figures/training.png){#fig-training width=58%}
 
 # What's next
 
