@@ -75,9 +75,9 @@ format:
 
 ## Steps 1 and 2: what they say
 
-- **Step 1: no.** A new head on the frozen features doesn't beat the detector's own, and neither more head capacity nor reweighting the hard negatives changes that
-- The detector's readout of its features is about as good as those features get: anything more needs new information, not a better readout
-- **Step 2: yes, with a caveat.** The second scan was the only change that moved validation and it carried to test, so it carries signal the first scan doesn't
+- **Step 1: no.** A new head on the frozen features doesn't beat the detector's own, and neither head capacity nor reweighting changes that
+- Its readout is about as good as its features get: more needs new information, not a better readout
+- **Step 2: yes, with a caveat.** Only the second scan moved validation, and it carried to test: it carries signal the first scan doesn't
 - But false alarms doubled at the same recall, and the paired interval on the gain, [−0.06, +0.16], includes zero
 
 ## Steps 1 and 2: the picture
