@@ -1,8 +1,0 @@
-{
-  "_note": "Experiment 3: the extrapolate combiner, f(+h) = f_new + lead/dt * (f_new - f_old) with the real scan timing, one shared head started from the published head. A fixed time rule instead of a learned one.",
-  "train_years": [2015],
-  "test_years": [2015],
-  "combiner": "extrapolate",
-  "head_init": "pretrained",
-  "exp_name": "extrapolate"
-}

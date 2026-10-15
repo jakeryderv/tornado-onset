@@ -103,16 +103,16 @@ scan. The paired delta vs persistence with its interval is the result.
 
 ## Runs
 
-The final set: one baseline and three experiments, one seed each, all on 2015, run back to
-back by `scripts/final_runs.sh` and tabulated by `onset-summary`.
+The final set: one baseline and three experiments, one seed each, all on 2015, defined in
+`tornado_onset.config.EXPERIMENTS` and run by `onset-train all` (which ends with the
+`onset-summary` table).
 
-| config | what it asks |
+| experiment | what it asks |
 |---|---|
 | `baseline` | the model: fine-tuned encoder on two scans, the authors' head, early stopping |
 | `frozen_encoder` | does fine-tuning on the onset target matter? (`encoder_trainable: false`) |
 | `one_scan` | does the second scan buy anything? the model sees only the newest observed scan, same targets and test set (`input_scans: 1`) |
 | `extrapolate` | a fixed time rule instead of a learned one: f(+h) = f_new + lead/dt · (f_new − f_old) with the real clock, one shared head from the published weights |
-| `smoke` | the baseline on 6,000 samples, for a quick check |
 
 With one seed per config, differences inside about ±0.03 are read as ties; the paired bootstrap
 on the same test files is the interval reported.
@@ -150,6 +150,6 @@ stopping now addresses.
 
 - Torch only; uv, ruff, ty, pytest. `uv run pytest` includes two tiny runs on 24 samples of one
   Hub shard (skipped offline).
-- Runs land under `$EXP_DIR` (default `experiments/`, git-ignored). Any `Config` key can be set
-  in the JSON or with `--set key=value`; keys starting with `_` are notes.
+- Runs land under `$EXP_DIR` (default `experiments/`, git-ignored). Experiments are the dict in
+  `config.py`; any `Config` key can be changed with `--set key=value`.
 - `onset-score <checkpoint>` rescores any checkpoint with the config it was trained with.

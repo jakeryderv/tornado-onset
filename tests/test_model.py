@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import torch
 
-from tornado_onset.config import Config, load_config
+from tornado_onset.config import EXPERIMENTS, Config, config_from_dict, experiment
 from tornado_onset.data import N_INPUT_CHANNELS
 from tornado_onset.model import Losses, OnsetModel
 from tornado_onset.summary import compare, find_runs, run_rows, table
@@ -70,7 +70,7 @@ def test_loss_reaches_encoder_and_head(combiner: str) -> None:
     assert all(p.grad is not None for p in m.head.parameters())
 
 
-def test_config_rules(tmp_path) -> None:
+def test_config_rules() -> None:
     with pytest.raises(ValueError, match="combiner"):
         Config(combiner="lstm")
     with pytest.raises(ValueError, match="extrapolate"):
@@ -81,14 +81,15 @@ def test_config_rules(tmp_path) -> None:
         Config(input_scans=3)
     Config(combiner="extrapolate", head_init="pretrained")
     Config(input_scans=1)
-    p = tmp_path / "c.json"
-    p.write_text(json.dumps({"epochs": 1, "bogus": 2}))
     with pytest.raises(ValueError, match="bogus"):
-        load_config(p)
-    p.write_text(json.dumps({"epochs": 1, "_note": "ignored"}))
-    assert load_config(p).epochs == 1
-    cfg = load_config(None, epochs=1, sample_weights={"w2": 3.0})
+        config_from_dict({"epochs": 1, "bogus": 2})
+    assert config_from_dict({"epochs": 1, "_note": "ignored"}).epochs == 1
+    cfg = config_from_dict({"epochs": 1, "sample_weights": {"w2": 3.0}})
     assert cfg.sample_weights["w2"] == 3.0 and cfg.sample_weights["wW"] == 0.5
+    for name in EXPERIMENTS:  # every experiment builds a valid config named after itself
+        assert experiment(name).exp_name == name
+    with pytest.raises(ValueError, match="unknown experiment"):
+        experiment("nope")
 
 
 def test_end_to_end_tiny_run(hub_files: dict, tmp_path) -> None:
@@ -107,7 +108,7 @@ def test_end_to_end_tiny_run(hub_files: dict, tmp_path) -> None:
         val_fraction=0.3,
         exp_dir=str(tmp_path / "exp"),
     )
-    results = run(load_config(None, exp_name="t", **base))
+    results = run(experiment("baseline", exp_name="t", **base))
     assert results["epochs_run"] in (1, 2) and os.path.exists(results["best_checkpoint"])
     scores = os.path.join(results["expdir"], "scores")
     names = {f"predictions_{w}_h{h}.csv" for w in ("head", "persistence", "truth") for h in (0, 1)}
@@ -118,7 +119,7 @@ def test_end_to_end_tiny_run(hub_files: dict, tmp_path) -> None:
         s = json.load(f)
     assert len(s["horizons"]) == 2 and s["horizons"][0]["n"] == 256
     assert set(results["pre_onset_WC_AUC"]["h0"]) == {"persistence", "truth", "head"}
-    run(load_config(None, exp_name="u", seed=7, input_scans=1, **base))
+    run(experiment("one_scan", exp_name="u", seed=7, **base))
     runs = find_runs([str(tmp_path / "exp")])
     assert len(runs) == 2
     rows = [r for run_dir in runs for r in run_rows(run_dir)]

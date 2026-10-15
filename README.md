@@ -38,17 +38,18 @@ A local `weights/tornet_detector_v1.pt` takes precedence over the Hub copy.
 ## Runs
 
 ```sh
-uv run onset-train configs/smoke.json                      # 6,000 samples, a quick check
-uv run onset-train configs/baseline.json                   # the model on 2015
-bash scripts/final_runs.sh                                 # baseline + the three experiments
+uv run onset-train baseline                                # the model on 2015
+uv run onset-train baseline --set max_files=6000 --set epochs=3   # a quick check
+uv run onset-train all                                     # baseline + the three experiments, then the table
 uv run onset-score experiments/<run>/checkpoints/last.pt   # rescore any checkpoint
 uv run onset-summary                                       # every finished run, one table
 ```
 
+The experiments are `baseline`, `frozen_encoder`, `one_scan` and `extrapolate`, defined in
+`tornado_onset.config.EXPERIMENTS`; any `Config` key can be changed with `--set key=value`.
 Each run lands under `$EXP_DIR` (default `experiments/`): `params.json`, `history.csv`,
 `checkpoints/{best,last}.pt`, `scores/` (per-view predictions CSVs, `summary.json`, likelihood
-maps, `features.npz`) and `results.json`. Any key in `tornado_onset.config.Config` can be set in
-the JSON or on the command line with `--set key=value`.
+maps, `features.npz`) and `results.json`.
 
 ## Data
 

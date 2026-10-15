@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from tornado_onset.config import DEFAULT_WEIGHTS, load_config
+from tornado_onset.config import DEFAULT_WEIGHTS, EXPERIMENTS, config_from_dict, experiment
 
 
 def _log() -> None:
@@ -114,24 +114,28 @@ def convert_weights(argv: list[str] | None = None) -> None:
 
 
 def train(argv: list[str] | None = None) -> None:
+    from tornado_onset.summary import main as summary
     from tornado_onset.train import run
 
+    names = [*EXPERIMENTS, "all"]
     p = argparse.ArgumentParser(
-        description="Train the onset model from a JSON config and score the best checkpoint."
+        description="Train and score one of the experiments, or all four back to back."
     )
-    p.add_argument(
-        "config", nargs="?", help="JSON file overriding the defaults in tornado_onset.config"
-    )
+    p.add_argument("experiment", choices=names, help="; ".join(names))
     p.add_argument(
         "--set",
         action="append",
         default=[],
         metavar="KEY=JSON",
-        help="override one key, e.g. epochs=1",
+        help="override a Config key, e.g. --set max_files=6000 --set epochs=3",
     )
     a = p.parse_args(argv)
     _log()
-    run(load_config(a.config, **_overrides(a.set)))
+    chosen = list(EXPERIMENTS) if a.experiment == "all" else [a.experiment]
+    for name in chosen:
+        run(experiment(name, **_overrides(a.set)))
+    if a.experiment == "all":
+        summary([os.environ.get("EXP_DIR", "experiments")])
 
 
 def score(argv: list[str] | None = None) -> None:
@@ -139,21 +143,19 @@ def score(argv: list[str] | None = None) -> None:
     from tornado_onset.model import build_model
     from tornado_onset.score import evaluate
 
-    p = argparse.ArgumentParser(description="Score a checkpoint on the config's test years.")
+    p = argparse.ArgumentParser(
+        description="Score a checkpoint with the config it was trained with (params.json)."
+    )
     p.add_argument("checkpoint", help="a state dict saved by onset-train (best.pt or last.pt)")
-    p.add_argument("--config", help="JSON config; default: params.json next to the checkpoint")
     p.add_argument("--out", help="output directory; default: <run>/scores_<checkpoint name>")
     p.add_argument("--set", action="append", default=[], metavar="KEY=JSON")
     a = p.parse_args(argv)
     _log()
     run_dir = os.path.dirname(os.path.dirname(os.path.abspath(a.checkpoint)))
-    if a.config:
-        cfg = load_config(a.config, **_overrides(a.set))
-    else:
-        import json
+    import json
 
-        with open(os.path.join(run_dir, "params.json")) as f:
-            cfg = load_config(None, **{**json.load(f)["config"], **_overrides(a.set)})
+    with open(os.path.join(run_dir, "params.json")) as f:
+        cfg = config_from_dict({**json.load(f)["config"], **_overrides(a.set)})
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(cfg).to(device)
     model.load_state_dict(torch.load(a.checkpoint, map_location=device))

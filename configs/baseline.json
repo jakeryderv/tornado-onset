@@ -1,6 +1,0 @@
-{
-  "_note": "The model: fine-tuned TorNet encoder on the two observed scans, the authors' head, trained on 2015 with early stopping; scored on the 2015 test partition.",
-  "train_years": [2015],
-  "test_years": [2015],
-  "exp_name": "baseline"
-}

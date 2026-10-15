@@ -1,16 +1,15 @@
-"""Run configuration: a dataclass with the agreed defaults, overridden by a JSON file.
+"""Run configuration: a dataclass with the defaults, and the four experiments as overrides.
 
 The model is the fine-tuned TorNet encoder with the authors' head; the loss is the head's
-weighted cross-entropy. Training stops early on the validation head AUC.
+weighted cross-entropy; training stops early on the validation head AUC. `onset-train <name>`
+runs one of `EXPERIMENTS` (or `all`), with `--set key=value` for ad hoc changes.
 """
 
 from __future__ import annotations
 
 import dataclasses
-import json
 import os
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 WEIGHTS_REPO = "jakeryderv/tornet-detector-torch"  # the published detector as a torch state dict
@@ -70,7 +69,7 @@ class Config:
     weight_decay: float = 1e-4
     grad_clip: float = 1.0
     amp: bool = True
-    workers: int = 8
+    workers: int = 4  # each loader worker holds one decoded shard, about 1 GB
     seed: int = 1234
     # evaluation
     bootstrap: int = 1000
@@ -98,14 +97,30 @@ class Config:
         return dataclasses.asdict(self)
 
 
-def load_config(path: str | Path | None = None, **overrides: Any) -> Config:
-    """Defaults, then the JSON file, then keyword overrides. Unknown keys are an error; keys
-    starting with `_` (notes) are ignored."""
-    values: dict[str, Any] = {}
-    if path is not None:
-        with open(path) as f:
-            values.update({k: v for k, v in json.load(f).items() if not k.startswith("_")})
-    values.update(overrides)
+EXPERIMENTS: dict[str, dict[str, Any]] = {
+    # the model: fine-tuned encoder on the two observed scans, the authors' head, early stopping
+    "baseline": {},
+    # does fine-tuning on the onset target matter? the published encoder frozen, only the head trains
+    "frozen_encoder": {"encoder_trainable": False},
+    # does the second scan buy anything? the model sees only the newest observed scan; same
+    # targets and the same pre-onset test set
+    "one_scan": {"input_scans": 1},
+    # a fixed time rule instead of a learned one: f(+h) = f_new + lead/dt * (f_new - f_old) with
+    # the real scan timing, one shared head started from the published head
+    "extrapolate": {"combiner": "extrapolate", "head_init": "pretrained"},
+}
+
+
+def experiment(name: str, **overrides: Any) -> Config:
+    """The named experiment's config (its `exp_name` is the name), with keyword overrides."""
+    if name not in EXPERIMENTS:
+        raise ValueError(f"unknown experiment {name!r}; one of {sorted(EXPERIMENTS)}")
+    return config_from_dict({**EXPERIMENTS[name], "exp_name": name, **overrides})
+
+
+def config_from_dict(values: dict[str, Any]) -> Config:
+    """A Config from a dict (a run's params.json, or overrides). Unknown keys are an error."""
+    values = {k: v for k, v in values.items() if not k.startswith("_")}
     known = {f.name for f in dataclasses.fields(Config)}
     unknown = set(values) - known
     if unknown:

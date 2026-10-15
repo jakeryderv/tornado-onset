@@ -1,7 +1,0 @@
-{
-  "_note": "Experiment 1: the published encoder frozen; only the head trains. Does fine-tuning on the onset target matter?",
-  "train_years": [2015],
-  "test_years": [2015],
-  "encoder_trainable": false,
-  "exp_name": "frozen_encoder"
-}

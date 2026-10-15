@@ -1,9 +1,0 @@
-{
-  "_note": "Smoke test: the baseline on 6,000 training samples, fewer bootstraps.",
-  "train_years": [2015],
-  "test_years": [2015],
-  "max_files": 6000,
-  "epochs": 3,
-  "bootstrap": 200,
-  "exp_name": "smoke"
-}

@@ -201,28 +201,33 @@ def split_by_day(df: pd.DataFrame, val_fraction: float, seed: int) -> tuple[set[
 
 
 def _flat(column) -> np.ndarray:
-    """A nested list<...<halffloat|uint8>> Arrow column -> (N, *SHAPE) numpy."""
+    """A nested list<...<halffloat|uint8>> Arrow column -> an owned (N, *SHAPE) numpy array."""
     arr = column.combine_chunks() if isinstance(column, pa.ChunkedArray) else column
     n = len(arr)
     if isinstance(arr, pa.ExtensionArray):  # `datasets` registered its Array4D type
         arr = arr.storage
     while isinstance(arr, pa.ListArray | pa.FixedSizeListArray):
         arr = arr.flatten()
-    return arr.to_numpy(zero_copy_only=False).reshape(n, *SHAPE)
+    return np.array(arr.to_numpy(zero_copy_only=False), copy=True).reshape(n, *SHAPE)
 
 
 def read_shard(path: str, columns: list[str] | None = None) -> dict[str, Any]:
-    """One shard -> {"filename": [...], scalar columns: lists, array columns: (N, *SHAPE)}."""
+    """One shard -> {"filename": [...], scalar columns: lists, array columns: (N, *SHAPE)}.
+    Columns are read one at a time and copied out of Arrow, with the system allocator so the
+    memory goes back to the OS: a worker holds one decoded shard (~0.8 GB), not an Arrow table
+    on top of it."""
     import pyarrow.parquet as pq
 
-    table = pq.read_table(path, columns=columns)
+    pa.set_memory_pool(pa.system_memory_pool())
+    f = pq.ParquetFile(path)
+    names = columns or f.schema_arrow.names
     out: dict[str, Any] = {}
-    for name in table.column_names:
-        col = table.column(name)
-        if name in ARRAY_FIELDS:
-            out[name] = _flat(col)
-        else:
-            out[name] = col.to_pylist()
+    for name in names:
+        col = f.read(columns=[name]).column(0)
+        out[name] = _flat(col) if name in ARRAY_FIELDS else col.to_pylist()
+        del col
+    f.close()
+    pa.default_memory_pool().release_unused()
     return out
 
 
