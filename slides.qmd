@@ -1,0 +1,131 @@
+---
+title: "Tornado onset from radar"
+subtitle: "Can the TorNet detector be re-aimed at the ten minutes before a tornado shows up?"
+author: "Jake Van Slyke, Jeffrey Gregory"
+date: last-modified
+format:
+  pptx:
+    slide-level: 2
+  revealjs:
+    slide-number: true
+---
+
+## The problem
+
+- TorNet is a tornado **detection** benchmark: radar chips of a storm, labeled for whether a tornado is in them, and a published CNN that answers that from one scan
+- Detection isn't what's missing in the last minutes before a touchdown. A signal *before* the signature is obvious would be
+- So the question is **prediction**: given the two oldest of a sample's four scans, how likely is a tornado in each of the two newest, roughly +5 and +10 minutes out?
+
+## Keeping it honest
+
+- A tornado already on the radar is trivial to carry forward, so we score only **pre-onset** cases: nothing tornadic in the input scans, tornado present in the last target scan
+- Negatives are the hard ones: storms under a tornado **warning** that never produced one
+- Two reference points from the published detector itself, frozen:
+  - **floor**: the detector on the newest observed scan, what a forecaster already has
+  - **ceiling**: the detector on the real future scan, what detection gives if the radar forecast were perfect
+- A model lands somewhere between; the result is its paired difference from the floor on the same files
+
+## The data
+
+- TorNet v1.1: 203,133 samples, 2013 to 2022, four NEXRAD dual-pol scans per sample about five minutes apart, six products at two tilts, a label per scan
+- Repackaged on the Hugging Face Hub as Parquet by year, with the detector's weights as a PyTorch state dict next to it, so a run needs nothing downloaded by hand
+- This round: **2014 and 2015**, cut two ways
+  - detection steps: 6,414 clips split by storm group, 1,422 test with 89 positives
+  - onset steps: the authors' partitions, 37,168 train, 6,448 test with 495 pre-onset cases
+- Every model sees a scan exactly as the published detector does, so its weights drop in with no adapter
+
+## The models
+
+Both start from the published CNN: four CoordConv blocks ending in a 384-channel map over an 8 × 15 grid.
+
+:::: {.columns}
+::: {.column width="50%"}
+**Frozen features, small head**
+
+- CNN frozen, 384 pooled features per scan
+- 385-parameter linear head, current-scan label
+- two scans: feature vectors averaged
+- three seeds, validation picks everything, test touched once
+:::
+::: {.column width="50%"}
+**Two scans, the authors' head, onset target**
+
+- CNN on both scans, maps concatenated cell by cell (768 channels)
+- a fresh copy of the authors' head: 1×1 convs to a per-cell logit, max over cells
+- one logit per horizon, weighted BCE against the future labels
+- CNN frozen in one run, fine-tuned at a tenth of the head's learning rate in the other
+:::
+::::
+
+## The ladder
+
+Five steps, each changing one thing. The first two stay on the detection task to check the ingredients before the task changes.
+
+| step | what changes | question |
+|:--:|:--|:--|
+| 0 | nothing trained: the published detector, one scan | what does it already give? |
+| 1 | new linear head on frozen features, current scan | can a retrained head beat the detector at its own job? |
+| 2 | the scan five minutes earlier added, features averaged | does a second scan carry anything the first doesn't? |
+| 3 | frozen CNN, both scans, the authors' head retrained on +5 / +10 labels | can the features be re-aimed at "will it appear"? |
+| 4 | the CNN unfrozen | does adapting the features buy more? |
+
+## Steps 1 and 2: the detection task
+
+| configuration | validation AP | test AP | at the locked threshold |
+|:--|:--:|:--:|:--|
+| original pretrained CNN | | 0.517 | 68 of 89 found, 276 false alarms |
+| step 1: current scan, linear head | 0.658 | 0.508 | 70 found, 571 false alarms |
+| step 2: two-scan mean, linear head | **0.675** | **0.548** | 69 found, 564 false alarms |
+| current scan, MLP head | 0.670 | | not selected |
+| warned negatives ×2 | 0.656 | | not selected |
+
+- **Step 1: no.** A new head on frozen features doesn't beat the detector's own, and neither head capacity nor reweighting changes that
+- **Step 2: yes, with a caveat.** The second scan was the only change that moved validation and it carried to test, but false alarms doubled and the paired interval on the gain, [−0.06, +0.16], includes zero
+
+## Steps 1 and 2: the picture
+
+![](figures/jg_adaptations_pr.png)
+
+## Step 0: the stakes
+
+Pre-onset AUC against warned storms, 2014–2015 test set, 495 pre-onset cases
+
+| | +5 min | +10 min |
+|:--|:--:|:--:|
+| floor: detector on the newest scan | 0.731 | 0.726 |
+| ceiling: detector on the future scan | 0.769 | 0.797 |
+| ceiling minus floor, paired | +0.038 [+0.016, +0.063] | +0.071 [+0.048, +0.093] |
+
+- The detector carried forward already scores 0.73: the signature is often half-formed five minutes before the label flips
+- The gap to the ceiling is the entire prize for forecasting the radar: 0.04 at +5, 0.07 at +10
+
+## Steps 3 and 4: the onset task
+
+| | +5 min | paired vs floor | +10 min | paired vs floor |
+|:--|:--:|:--:|:--:|:--:|
+| floor | 0.731 | | 0.726 | |
+| 3: frozen CNN, two scans, new head | 0.699 | −0.032 [−0.045, −0.020] | 0.710 | −0.017 [−0.024, −0.010] |
+| 4: fine-tuned | 0.724 | −0.007 [−0.031, +0.015] | 0.728 | +0.001 [−0.016, +0.018] |
+| ceiling | 0.769 | | 0.797 | |
+
+- **Step 3 lands below the floor**, and not by noise: step 1's answer again on the harder task
+- **Step 4 recovers the floor and no more.** Fine-tuning lifts the head by about 0.02 to a tie with the detector; validation was still rising at the epoch cap
+- Same picture in each year: ties the floor in 2015, trails it in 2014
+
+## Steps 3 and 4: the picture
+
+![](figures/ladder.png)
+
+## The takeaway
+
+- A detector can be pointed at the ten minutes before a tornado, and what it finds there is what it already finds in the latest scan
+- Its features carry a real early signal, which is why the floor sits at 0.73
+- Re-reading or fine-tuning them over two scans adds nothing to it, and even a perfect next scan would add only a few hundredths
+
+## What's next
+
+- **Cheap:** the full dataset. Ten years is a config change, and it fixes what limited this round: a fine-tune still improving at the cap, and intervals wide enough to hide a gain of a couple of hundredths
+- **Larger:** use the detector for detecting, and build what's missing around it
+  - longer storm histories than two scans, so a temporal model learns how a storm has been evolving rather than one difference
+  - a forecasting model that learns those patterns and does two jobs: hands the detector the context one scan leaves out, and predicts the radar itself so the detector reads a forecast scan
+- The ceiling is exactly that model with perfect predictions, and the first number in this project that clears the floor
