@@ -121,26 +121,36 @@ files; `run.py summary <dir>` rebuilds the summary and figures from the files al
 With one seed per config, differences inside about ±0.03 are read as ties; the paired bootstrap
 on the same test files is the interval reported.
 
-### 2015 result (2026-10-14, before the decoder was dropped)
+### Final result (2026-10-15): the ladder on 2014-2015
 
-Test partition: 3,902 samples, 275 pre-onset cases, 82 ongoing. Pre-onset cases vs warned
-storms (WC AUC), paired bootstrap against persistence in brackets.
+Test partition: 6,448 samples, 495 pre-onset cases, 215 ongoing. Pre-onset cases vs warned
+storms (WC AUC), 95% bootstrap intervals; paired bootstrap against the floor on the same files.
+Run directory `results/final/` (git-ignored; figures copied to `figures/`).
 
-| horizon | floor | ceiling | decoder + judge losses, head | head-only |
-|---|---|---|---|---|
-| +5 min | 0.709 | 0.764 | 0.716 (+0.007 [-0.030, +0.040]) | 0.739 (+0.030 [-0.006, +0.064]) |
-| +10 min | 0.722 | 0.796 | 0.729 (+0.007 [-0.015, +0.031]) | 0.735 (+0.013 [-0.011, +0.038]) |
+| step | +5 min | paired vs floor | +10 min | paired vs floor | best / epochs |
+|---|---|---|---|---|---|
+| 0 floor (detector, newest scan) | 0.731 [0.697, 0.767] | | 0.726 [0.701, 0.750] | | |
+| 0 ceiling (detector, future scan) | 0.769 [0.734, 0.806] | +0.038 [+0.016, +0.063] | 0.797 [0.772, 0.822] | +0.071 [+0.048, +0.093] | |
+| 1 frozen | 0.699 [0.662, 0.737] | -0.032 [-0.045, -0.020] | 0.710 [0.683, 0.736] | -0.017 [-0.024, -0.010] | 2 / 4 |
+| 2 finetuned | 0.724 [0.689, 0.762] | -0.007 [-0.031, +0.015] | 0.728 [0.701, 0.752] | +0.001 [-0.016, +0.018] | 5 / 5 (cap) |
 
-Head-only minus the other head on the same files, pre-onset WC: +0.023 [+0.004, +0.043] at
-+5 min, +0.006 [-0.010, +0.021] at +10 min. Both overfit after epoch 2 to 3 on one year of
-training data (training AUC keeps rising to 0.95 while validation falls), which is what early
-stopping now addresses.
+Per year (pre-onset WC AUC, floor / finetuned / frozen): 2014 +5 0.752 / 0.725 / 0.719,
++10 0.732 / 0.732 / 0.722; 2015 +5 0.709 / 0.721 / 0.678, +10 0.722 / 0.725 / 0.700.
 
-- **The head beats the floor, and only just.** +0.030 / +0.013 over the published detector on
-  the newest scan, intervals touching zero; the ceiling stays 0.055 / 0.074 above the floor.
-  Fine-tuning on one year buys a small, real-looking gain that one test year cannot resolve.
-- **One seed each.** Decided 2026-10-14: no more seeds and no learning-rate sweep; the final
-  set is the ladder in `run.py`, one run each.
+- **The frozen head is below the floor**, significantly: a new head on the frozen features
+  over two scans does not match the published head carried forward.
+- **Fine-tuning recovers the floor and no more.** +0.025 / +0.018 over frozen, a tie with the
+  detector at both horizons; validation was still rising at the epoch-5 cap (train AUC 0.93 vs
+  val 0.88), so a longer fine-tune might add a little, bounded by the ceiling gap of
+  0.045 / 0.07.
+- Reading: for the ten minutes before onset, two scans read by this CNN carry about what the
+  latest scan already carries. Written up in `report.qmd` together with the coauthor's
+  detection-task steps (frozen features, linear head, current scan vs two-scan mean; notebook
+  in `references/`).
+
+Earlier (2015 only, netCDF era, decoder vs head-only): head-only 0.739 / 0.735 vs the decoder
+model's 0.716 / 0.729 (floor 0.709 / 0.722, ceiling 0.764 / 0.796); head-only minus decoder
++0.023 [+0.004, +0.043] at +5. Both overfit after epoch 2-3, hence early stopping.
 
 ## Open questions
 
