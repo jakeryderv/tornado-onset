@@ -18,7 +18,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from tornado_onset.config import Config
+from tornado_onset.config import Config, resolve_weights
 from tornado_onset.data import OnsetDataset, collate, load_split, split_by_day
 from tornado_onset.metrics import roc_auc
 from tornado_onset.model import Losses, OnsetModel, build_model
@@ -192,7 +192,7 @@ def run(cfg: Config) -> dict[str, Any]:
     expdir = make_expdir(cfg)
     logging.info("device %s; run dir %s; config %s", device, expdir, cfg.to_dict())
     model = build_model(cfg).to(device)
-    judge = load_detector(cfg.weights, device)
+    judge = load_detector(resolve_weights(cfg.weights), device)
     n_params = sum(p.numel() for p in model.parameters())
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logging.info("model: %s params, %s trainable", f"{n_params:,}", f"{n_train:,}")

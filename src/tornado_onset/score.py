@@ -21,7 +21,7 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader
 
-from tornado_onset.config import Config
+from tornado_onset.config import Config, resolve_weights
 from tornado_onset.data import OnsetDataset, collate, load_split
 from tornado_onset.metrics import paired_difference, views
 from tornado_onset.model import OnsetModel
@@ -60,7 +60,7 @@ def evaluate(
     judge: TorNetDetector | None = None,
 ) -> dict:
     model.eval()
-    judge = judge or load_detector(cfg.weights, device)
+    judge = judge or load_detector(resolve_weights(cfg.weights), device)
     loader = test_loader(cfg)
     H = cfg.horizons
     views_of = VIEWS_OF

@@ -7,8 +7,8 @@ The model is the published [TorNet](https://github.com/mit-ll/tornet) backbone
 ([weights on Hugging Face](https://huggingface.co/tornet-ml/tornado_detector_baseline_v1))
 fine-tuned on that target, with the authors' head on top. The frozen published detector is the
 judge that sets the persistence floor (detector on the newest real scan) and the ceiling
-(detector on the real future scan). Everything is PyTorch; the published Keras checkpoint is
-converted once to a state dict.
+(detector on the real future scan). Everything is PyTorch, and model and data both come from the
+Hugging Face Hub.
 
 See `docs/project.md` for the design, the evaluation protocol and the run log.
 
@@ -16,16 +16,24 @@ See `docs/project.md` for the design, the evaluation protocol and the run log.
 
 ```sh
 uv sync
-uv run onset-convert-weights --verify results/reference/predictions_pretrained_2013_2014_fp32.csv
 uv run pytest
 uv run ruff check . && uv run ruff format --check .
 uv run ty check
 ```
 
-The second command downloads the published Keras checkpoint from Hugging Face, writes
-`weights/tornet_detector_v1.pt` (git-ignored) and checks its logits against the reference,
-reading the 2013 and 2014 test samples from the Hub dataset. The tests fetch one shard of each
-2013 partition (about 225 MB, cached).
+Nothing to download by hand: the detector weights come from
+[`jakeryderv/tornet-detector-torch`](https://huggingface.co/jakeryderv/tornet-detector-torch)
+(the published Keras checkpoint converted once to a torch state dict, 18 MB) and the data from
+the Hub dataset below, both cached on first use. The tests fetch one shard of each 2013
+partition, about 225 MB.
+
+To redo the weight conversion yourself and check it against the Keras model's fp32 logits:
+
+```sh
+uv run onset-convert-weights --verify results/reference/predictions_pretrained_2013_2014_fp32.csv
+```
+
+A local `weights/tornet_detector_v1.pt` takes precedence over the Hub copy.
 
 ## Runs
 

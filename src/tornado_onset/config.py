@@ -13,7 +13,21 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-DEFAULT_WEIGHTS = "weights/tornet_detector_v1.pt"
+WEIGHTS_REPO = "jakeryderv/tornet-detector-torch"  # the published detector as a torch state dict
+WEIGHTS_FILE = "tornet_detector_v1.pt"
+DEFAULT_WEIGHTS = f"weights/{WEIGHTS_FILE}"  # a local conversion, if one exists, wins
+
+
+def resolve_weights(path: str | None = None) -> str:
+    """A local state-dict path if it exists, else the copy on the Hub (downloaded once)."""
+    import os
+
+    path = path or DEFAULT_WEIGHTS
+    if os.path.exists(path):
+        return path
+    from huggingface_hub import hf_hub_download
+
+    return hf_hub_download(WEIGHTS_REPO, WEIGHTS_FILE)
 
 
 @dataclass
@@ -31,7 +45,9 @@ class Config:
     horizons: int = 2
     max_files: int | None = None  # cap on training files, for smoke runs
     # model
-    weights: str = DEFAULT_WEIGHTS  # the converted published detector: encoder init + judge
+    weights: str = (
+        DEFAULT_WEIGHTS  # encoder init + judge; fetched from the Hub when missing locally
+    )
     encoder_trainable: bool = True
     start_filters: int = 48
     # loss

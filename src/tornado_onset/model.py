@@ -22,7 +22,7 @@ from typing import Any
 import torch
 from torch import nn
 
-from tornado_onset.config import Config
+from tornado_onset.config import Config, resolve_weights
 from tornado_onset.tornet import TorNetEncoder, TorNetHead
 
 
@@ -53,7 +53,7 @@ class OnsetModel(nn.Module):
 def build_model(cfg: Config) -> OnsetModel:
     """The model with its encoder initialised from the converted published weights."""
     model = OnsetModel(cfg.n_in, cfg.horizons, cfg.start_filters)
-    sd = torch.load(cfg.weights, map_location="cpu")
+    sd = torch.load(resolve_weights(cfg.weights), map_location="cpu")
     enc = {k.removeprefix("encoder."): v for k, v in sd.items() if k.startswith("encoder.")}
     model.encoder.load_state_dict(enc, strict=True)
     if not cfg.encoder_trainable:

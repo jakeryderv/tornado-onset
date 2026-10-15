@@ -36,8 +36,10 @@ on one year.
 ## Model
 
 The published TorNet detector supplies both the starting point and the judge. Its Keras
-checkpoint is converted once to a torch state dict (`onset-convert-weights`), with no Keras in
-the dependency tree; the conversion reproduces the published logits to 2e-5.
+checkpoint was converted once to a torch state dict (`onset-convert-weights`, no Keras in the
+dependency tree; the conversion reproduces the published logits to 2e-5) and published as
+`jakeryderv/tornet-detector-torch` (MIT, as the original); `resolve_weights` fetches it unless
+a local conversion exists.
 
 ```
 two scans (14 channels each: 12 normalised radar channels + 2 range-folded)

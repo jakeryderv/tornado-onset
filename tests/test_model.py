@@ -61,8 +61,6 @@ def test_config_rejects_unknown_keys(tmp_path) -> None:
 def test_end_to_end_tiny_run(hub_files: dict, tmp_path) -> None:
     """Two epochs on 24 samples of one Hub shard with the real weights, scoring on 12, and the
     summary over two such runs."""
-    if not os.path.exists(Config().weights):
-        pytest.skip("run onset-convert-weights first")
     from tornado_onset.train import run
 
     base = dict(
