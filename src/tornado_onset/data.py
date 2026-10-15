@@ -220,7 +220,6 @@ class OnsetDataset(IterableDataset):
         labels       (horizons,)           tornado label of each target scan
         frame_labels (n_in + horizons,)    every scan's label, for scoping the evaluation
         minutes      (horizons,)           lead from the last input scan, real timestamps
-        dt_in        ()                    minutes between the last two input scans
         weight       ()                    the authors' sample weight
         meta         filename, category, ef_number, event_id, time (last input), times
     """
@@ -281,7 +280,6 @@ class OnsetDataset(IterableDataset):
                     "minutes": torch.from_numpy(
                         ((t[n : n + h] - t[n - 1]) / 60).astype(np.float32)
                     ),
-                    "dt_in": torch.tensor((t[n - 1] - t[max(n - 2, 0)]) / 60, dtype=torch.float32),
                     "weight": torch.tensor(sample_weight(s.category, s.ef_number, self.weights)),
                     "meta": {
                         "filename": s.filename,

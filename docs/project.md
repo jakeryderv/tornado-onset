@@ -51,24 +51,17 @@ the published state dict unless a local `weights/tornet_detector_v1.pt` exists.
 ```
 two scans (14 channels each: 12 normalised radar channels + 2 range-folded)
     |
-TorNet encoder, fine-tuned, run per scan; bottleneck features concatenated across scans
+TorNet encoder (frozen or fine-tuned per step), run per scan; bottleneck features concatenated
     |
 the authors' head: 1x1 convs to a per-cell logit map, max over cells
     -> P(tornado at +5), P(tornado at +10)
 ```
 
-**Combiners** (`combiner`). `concat`, the default and the measured model: the two maps side by
-side in channels (768), one head with one output map per horizon. `extrapolate`: with two
-scans a feature's history is a line, so form the slope from the last two maps and extrapolate
-each feature to every horizon with the real scan timing, f(+h) = f_new + (lead_h / dt) ·
-(f_new − f_old), then apply one shared 384-channel head to each f(+h); that head can start
-from the published head's weights (`head_init: pretrained`). Same expressive power as concat
-at two scans, a different inductive bias ("the trend continues") and the real clock instead of
-assumed five-minute spacing. With `consistency_weight` an L1 pulls each f(+h) toward the
-encoder's own features of the real scan at +h (targets detached), the feature-space form of a
-temporal-consistency loss: it asks for a representation whose trend is predictive without
-drawing pixels. Configs `y2015_extrapolate` and `y2015_extrapolate_consistency`; untested as
-of 2026-10-14.
+**Dropped 2026-10-14: the extrapolate combiner.** A fixed time rule (features extrapolated
+along the real scan spacing, one shared head started from the published head) was coded as an
+alternative to concatenation but never run. It was a sideways step rather than a rung on the
+ladder below, so it went with the trim; the natural temporal step later is a longer history,
+not a different combiner.
 
 4.9M parameters. One loss: weighted cross-entropy on the head's per-horizon logits against the
 labels of the future scans (the authors' sample weights: EF2+ ×2, warnings ×0.5). AdamW, the
@@ -101,15 +94,21 @@ scan. The paired delta vs persistence with its interval is the result.
 
 ## Runs
 
-The final set: one baseline and three experiments, one seed each, all on 2015, defined at the
-top of `run.py` and run by `uv run run.py all` (which ends with the summary table).
+A ladder: the published detector first, then three trained runs that each change one thing.
+One seed each, all on 2015, defined at the top of `run.py` and run by `uv run run.py all`
+(which ends with the summary table).
 
-| experiment | what it asks |
-|---|---|
-| `baseline` | the model: fine-tuned encoder on two scans, the authors' head, early stopping |
-| `frozen_encoder` | does fine-tuning on the onset target matter? (`encoder_trainable: false`) |
-| `one_scan` | does the second scan buy anything? the model sees only the newest observed scan, same targets and test set (`input_scans: 1`) |
-| `extrapolate` | a fixed time rule instead of a learned one: f(+h) = f_new + lead/dt · (f_new − f_old) with the real clock, one shared head from the published weights |
+| step | run | what changes | question |
+|---|---|---|---|
+| 0 | `detector` | nothing trained: the published detector as designed, one scan, scored on the 2015 test set | what the detector already gives on the onset question. On the newest observed scan it is the floor; on the real future scan, the ceiling |
+| 1 | `frozen_one_scan` | a new head trained on the onset target; same single scan, encoder frozen | the scope change alone: can the detector's features be re-read for "will it appear" |
+| 2 | `frozen_two_scans` | the second observed scan added, features concatenated | does time help when the features are fixed |
+| 3 | `finetuned` | encoder unfrozen at a tenth of the head's learning rate | does letting the features adapt to the target buy more |
+
+Step zero is a run directory of its own (`experiments/detector/`, no timestamp) holding the
+floor and ceiling predictions; every trained run writes only its head predictions and is
+paired against that cached floor on the same test files. The step is made once per experiment
+directory and reused.
 
 With one seed per config, differences inside about ±0.03 are read as ties; the paired bootstrap
 on the same test files is the interval reported.
@@ -133,7 +132,7 @@ stopping now addresses.
   the newest scan, intervals touching zero; the ceiling stays 0.055 / 0.074 above the floor.
   Fine-tuning on one year buys a small, real-looking gain that one test year cannot resolve.
 - **One seed each.** Decided 2026-10-14: no more seeds and no learning-rate sweep; the final
-  set is the baseline plus the three experiments in `run.py`, one run each.
+  set is the ladder in `run.py`, one run each.
 
 ## Open questions
 
@@ -150,4 +149,4 @@ stopping now addresses.
   root is the entry point, the package under `src/` holds the importable parts (detector port,
   data, model, training loop, scorer), about 1,100 lines in all. `--smoke` runs a short pass.
 - Runs land under `experiments/` (git-ignored). The shared defaults are the `Config` dataclass
-  in `config.py`; the four experiments are a few overrides each in `run.py`.
+  in `config.py`; the runs are a few overrides each in `run.py`.

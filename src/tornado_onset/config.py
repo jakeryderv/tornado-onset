@@ -1,5 +1,5 @@
-"""Run configuration: the defaults every run shares. The four experiments in `run.py` are a few
-overrides each."""
+"""Run configuration: the defaults every run shares. The runs in `run.py` are a few overrides
+each."""
 
 from __future__ import annotations
 
@@ -22,11 +22,6 @@ class Config:
     # model
     weights: str | None = None  # detector state dict; default: local copy, else the Hub
     encoder_trainable: bool = True
-    # how the per-scan feature maps combine before the head:
-    #   concat       scans side by side in channels, one head with `horizons` outputs
-    #   extrapolate  f(+h) = f_new + (lead_h / dt) * (f_new - f_old), one shared head
-    combiner: str = "concat"
-    head_init: str = "fresh"  # "pretrained": the published head's weights (extrapolate only)
     # loss: weighted cross-entropy per horizon, the authors' sample weights
     sample_weights: dict[str, float] = field(
         default_factory=lambda: {"wN": 1.0, "w0": 1.0, "w1": 1.0, "w2": 2.0, "wW": 0.5}
@@ -50,9 +45,3 @@ class Config:
             raise ValueError("a TorNet sample has four scans: n_in + horizons must be <= 4")
         if not 1 <= self.input_scans <= self.n_in:
             raise ValueError("input_scans must be between 1 and n_in")
-        if self.combiner not in ("concat", "extrapolate"):
-            raise ValueError("combiner must be 'concat' or 'extrapolate'")
-        if self.head_init == "pretrained" and self.combiner != "extrapolate":
-            raise ValueError("head_init 'pretrained' needs combiner 'extrapolate'")
-        if self.combiner == "extrapolate" and self.input_scans < 2:
-            raise ValueError("combiner 'extrapolate' needs two input scans")

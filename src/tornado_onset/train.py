@@ -22,7 +22,7 @@ from torch.utils.data import DataLoader
 from tornado_onset.config import Config
 from tornado_onset.data import OnsetDataset, collate, metadata, shard_paths, split_by_day
 from tornado_onset.model import OnsetModel, build_model, onset_loss
-from tornado_onset.score import evaluate, headline, roc_auc
+from tornado_onset.score import evaluate, headline, roc_auc, score_detector
 from tornado_onset.tornet import load_detector
 
 
@@ -82,7 +82,7 @@ def run_epoch(
             torch.set_grad_enabled(training),
             torch.autocast(device.type, enabled=cfg.amp and device.type == "cuda"),
         ):
-            logits = model(x, coords, batch["minutes"].to(device), batch["dt_in"].to(device))
+            logits = model(x, coords)
             loss = onset_loss(logits.float(), labels, batch["weight"].to(device))
         if training:
             assert optimizer is not None and scaler is not None
@@ -186,15 +186,32 @@ def make_expdir(cfg: Config) -> str:
     return path
 
 
+def detector_dir(cfg: Config) -> str:
+    return os.path.join(cfg.exp_dir, "detector")
+
+
+def run_detector(cfg: Config) -> str:
+    """Step zero, once per experiment directory: the published detector scored on the test set
+    as the floor and the ceiling. Returns its directory."""
+    out = detector_dir(cfg)
+    if os.path.exists(os.path.join(out, "summary.json")):
+        return out
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logging.info("scoring the published detector on %s -> %s", cfg.test_years, out)
+    judge = load_detector(cfg.weights, device)
+    score_detector(cfg, judge, device, out)
+    return out
+
+
 def run(cfg: Config) -> dict[str, Any]:
     """Train, keep the best checkpoint, score it; everything under a fresh run directory."""
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    floor_ceiling = run_detector(cfg)
     expdir = make_expdir(cfg)
     logging.info("device %s; run dir %s; config %s", device, expdir, dataclasses.asdict(cfg))
     model = build_model(cfg).to(device)
-    judge = load_detector(cfg.weights, device)
     n_params = sum(p.numel() for p in model.parameters())
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logging.info("model: %s params, %s trainable", f"{n_params:,}", f"{n_train:,}")
@@ -206,7 +223,7 @@ def run(cfg: Config) -> dict[str, Any]:
         )
     history, best_path, last_path = fit(cfg, model, device, expdir)
     model.load_state_dict(torch.load(best_path, map_location=device))
-    summary = evaluate(cfg, model, judge, device, os.path.join(expdir, "scores"))
+    summary = evaluate(cfg, model, device, os.path.join(expdir, "scores"), floor_ceiling)
     commit, dirty = git_revision()
     results: dict[str, Any] = {
         "exp_name": cfg.exp_name,

@@ -3,10 +3,10 @@
 Predict tornado onset from radar: given the scans observed so far, will a tornado appear in the
 next 5 and 10 minutes when none is visible yet?
 
-The model is the published [TorNet](https://github.com/mit-ll/tornet) detector's encoder
-fine-tuned on that target, run on the two most recent scans, with the authors' head on top. The
-frozen published detector is the judge that sets the persistence floor (detector on the newest
-real scan) and the ceiling (detector on the real future scan). Everything is PyTorch; model and
+The model is the published [TorNet](https://github.com/mit-ll/tornet) detector's encoder, frozen
+or fine-tuned, run on the most recent scans with a new copy of the authors' head trained on that
+target. The published detector itself, as designed, is step zero: on the newest real scan it is
+the persistence floor, on the real future scan the ceiling. Everything is PyTorch; model and
 data both come from the Hugging Face Hub:
 
 - weights: [`jakeryderv/tornet-detector-torch`](https://huggingface.co/jakeryderv/tornet-detector-torch),
@@ -20,22 +20,23 @@ Both are cached on first use; nothing to download by hand.
 
 ```sh
 uv sync
-uv run run.py all                # baseline + three experiments on 2015, then the summary table
-uv run run.py baseline --smoke   # a few thousand files, one epoch: does the path run?
+uv run run.py all                      # the published detector, then the three runs, then the table
+uv run run.py frozen_one_scan --smoke  # a few thousand files, one epoch: does the path run?
 ```
 
-The four runs are defined at the top of `run.py`:
+The runs form a ladder, each changing one thing, defined at the top of `run.py`:
 
-| run | change | question |
-|---|---|---|
-| `baseline` | none | fine-tuned encoder on two scans |
-| `frozen_encoder` | encoder frozen, head only trains | does fine-tuning on the onset target matter |
-| `one_scan` | the model sees only the newest scan | does the second scan buy anything |
-| `extrapolate` | features extrapolated by the real scan timing, shared head from the published head | a fixed time rule instead of a learned one |
+| step | run | what changes | question |
+|---|---|---|---|
+| 0 | `detector` | nothing trained: the published detector as designed, one scan, scored on the 2015 test set | what the detector already gives on the onset question. Newest observed scan: the floor. Real future scan: the ceiling |
+| 1 | `frozen_one_scan` | a new head trained on the onset target; same single scan, encoder frozen | the scope change alone |
+| 2 | `frozen_two_scans` | the second observed scan added, features concatenated | does time help when the features are fixed |
+| 3 | `finetuned` | encoder unfrozen at a tenth of the head's learning rate | does letting the features adapt buy more |
 
-Each lands under `experiments/<name>_<timestamp>/`: `params.json`, `history.csv`,
-`checkpoints/{best,last}.pt`, `scores/` (predictions CSVs for head, floor and ceiling, and
-`summary.json`) and `results.json`. The shared defaults are the `Config` dataclass in
+Step zero lands at `experiments/detector/` (floor and ceiling predictions, `summary.json`) and is
+made once; each trained run lands under `experiments/<name>_<timestamp>/` with `params.json`,
+`history.csv`, `checkpoints/{best,last}.pt`, `scores/` (head predictions, the floor and ceiling
+copied in, `summary.json`) and `results.json`. The shared defaults are the `Config` dataclass in
 `src/tornado_onset/config.py`; the package holds the detector port, the data pipeline, the
 model, the training loop and the scorer.
 
