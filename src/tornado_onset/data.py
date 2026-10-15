@@ -211,7 +211,9 @@ def row_of(shard: dict[str, Any], i: int) -> dict[str, Any]:
 class OnsetDataset(IterableDataset):
     """Samples streamed from Parquet shards: the oldest `n_in` scans in, the next `horizons`
     out. With `shuffle`, shard order is reshuffled every epoch (`set_epoch`) and rows within a
-    shard are shuffled; DataLoader workers take disjoint shards.
+    shard are shuffled; DataLoader workers take disjoint shards. Shards holding none of the
+    `keep` filenames are skipped after reading only their filename column, so a day-based
+    validation split (days are contiguous in the shards) decodes a fraction of the shards.
 
     Per item:
         x            (input_scans, 14, A, R)  the newest `input_scans` of the observed scans
@@ -262,10 +264,14 @@ class OnsetDataset(IterableDataset):
         rng = np.random.default_rng(self.seed + 1000 * self.epoch + (info.id if info else 0))
         n, h = self.n_in, self.horizons
         for path in self._my_paths():
+            if self.keep is not None:  # the filename column alone is cheap: skip shards with
+                names = read_shard(path, ["filename"])["filename"]  # nothing to yield
+                idx = [i for i, f in enumerate(names) if f in self.keep]
+                if not idx:
+                    continue
             shard = read_shard(path)
-            idx = [
-                i for i, f in enumerate(shard["filename"]) if self.keep is None or f in self.keep
-            ]
+            if self.keep is None:
+                idx = list(range(len(shard["filename"])))
             if self.shuffle:
                 rng.shuffle(idx)
             for i in idx:

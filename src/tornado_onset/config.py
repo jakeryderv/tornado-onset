@@ -18,7 +18,7 @@ class Config:
     n_in: int = 2  # observed scans per sample (the oldest n_in); the rest are targets
     input_scans: int = 2  # how many of the observed scans the model sees (the newest ones)
     horizons: int = 2
-    max_files: int | None = None  # cap on training files, for smoke runs
+    max_files: int | None = None  # smoke runs: only the earliest N training files
     # model
     weights: str | None = None  # detector state dict; default: local copy, else the Hub
     encoder_trainable: bool = True
