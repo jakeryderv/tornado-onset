@@ -1,5 +1,10 @@
 # tornado-onset: project notes
 
+The three self-contained pages: [problem.md](problem.md) (the question, the target, how a
+result is scored), [data.md](data.md) (the dataset, fields, loading) and [model.md](model.md)
+(architecture, training, evaluation). This file is the running log: results, decisions, open
+questions.
+
 ## The question
 
 Given the radar scans observed so far, will a tornado appear in the next 5 and 10 minutes when
