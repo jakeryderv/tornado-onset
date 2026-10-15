@@ -1,28 +1,26 @@
-"""Tornado onset: the published detector and three runs that build on it, on TorNet 2015.
+"""Tornado onset: the published detector and two runs that build on it, on TorNet 2014-2015.
 
     uv run run.py all                          # every step in order, into results/<stamp>/
     uv run run.py finetuned results/X          # one step into an existing directory
     uv run run.py summary results/X            # rebuild summary.csv/.txt and the figures
 
-    step  run               what changes                          question
-    0     detector          nothing trained: the published         what the detector already gives
-                            detector as designed, one scan,        on the onset question. Newest
-                            scored on the 2015 test set            observed scan: the floor. Real
-                                                                   future scan: the ceiling.
-    1     frozen_one_scan   a new head trained on the onset        the scope change alone: can the
-                            target; same single scan, encoder      detector's features be re-read
-                            frozen                                 for "will it appear"
-    2     frozen_two_scans  the second observed scan added,        does time help when the
-                            features concatenated                  features are fixed
-    3     finetuned         encoder unfrozen at a tenth of the     does letting the features adapt
-                            head's learning rate                   to the target buy more
+    step  run         what changes                                question
+    0     detector    nothing trained: the published detector     what the detector already gives
+                      as designed, one scan, scored on the        on the onset question. Newest
+                      test set                                    observed scan: the floor. Real
+                                                                  future scan: the ceiling.
+    1     frozen      encoder frozen, both observed scans in,     can the detector's own features,
+                      features concatenated, a new head trained   read over two scans, be re-aimed
+                      on the +5 / +10 min labels                  at onset
+    2     finetuned   encoder unfrozen at a tenth of the head's   does adapting the features to the
+                      learning rate                               target buy more
 
 Each invocation writes one self-contained directory, results/<stamp>/: detector/ (floor and
 ceiling predictions), one directory per trained run (params.json, history.csv, checkpoints/,
 scores/ with the head predictions and summary.json, results.json), summary.csv, summary.txt
 and figures/ (ladder, paired gain, ROC and PR curves, training curves). Each trained run uses
-the 2015 training partition (validation held out by day), keeps the checkpoint with the best
-validation head AUC and scores it against step zero. Model weights and data come from the
+the 2014-2015 training partitions (validation held out by day), keeps the checkpoint with the
+best validation head AUC and scores it against step zero. Model weights and data come from the
 Hugging Face Hub and are cached on first use.
 """
 
@@ -39,9 +37,8 @@ from tornado_onset.figures import summarize_root
 from tornado_onset.train import run, run_detector
 
 RUNS: dict[str, dict[str, Any]] = {
-    "frozen_one_scan": {"encoder_trainable": False, "input_scans": 1},
-    "frozen_two_scans": {"encoder_trainable": False, "input_scans": 2},
-    "finetuned": {"encoder_trainable": True, "input_scans": 2},
+    "frozen": {"encoder_trainable": False},
+    "finetuned": {"encoder_trainable": True},
 }
 
 

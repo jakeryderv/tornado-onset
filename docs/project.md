@@ -94,22 +94,27 @@ scan. The paired delta vs persistence with its interval is the result.
 
 ## Runs
 
-A ladder: the published detector first, then three trained runs that each change one thing.
-One seed each, all on 2015, defined at the top of `run.py` and run by `uv run run.py all`
-(which ends with the summary table).
+A ladder: the published detector first, then two trained runs. One seed each, 2014 and 2015
+(the authors' train and test partitions of both years; validation 15% of days), defined at the
+top of `run.py` and run by `uv run run.py all` (which ends with the summary table).
 
 | step | run | what changes | question |
 |---|---|---|---|
-| 0 | `detector` | nothing trained: the published detector as designed, one scan, scored on the 2015 test set | what the detector already gives on the onset question. On the newest observed scan it is the floor; on the real future scan, the ceiling |
-| 1 | `frozen_one_scan` | a new head trained on the onset target; same single scan, encoder frozen | the scope change alone: can the detector's features be re-read for "will it appear" |
-| 2 | `frozen_two_scans` | the second observed scan added, features concatenated | does time help when the features are fixed |
-| 3 | `finetuned` | encoder unfrozen at a tenth of the head's learning rate | does letting the features adapt to the target buy more |
+| 0 | `detector` | nothing trained: the published detector as designed, one scan, scored on the test set | what the detector already gives on the onset question. On the newest observed scan it is the floor; on the real future scan, the ceiling |
+| 1 | `frozen` | encoder frozen, both observed scans in, features concatenated, a new head trained on the +5 / +10 min labels | can the detector's own features, read over two scans, be re-aimed at "will it appear" |
+| 2 | `finetuned` | encoder unfrozen at a tenth of the head's learning rate | does letting the features adapt to the target buy more |
+
+Decided 2026-10-14: the one-scan frozen rung and the extrapolate combiner are out, so step 1
+changes two things at once (the target and the second scan); the detector row shows what one
+scan with the original head gives. Two years instead of one because the 2015-only runs
+overfit after epoch 2-3 and the test set gains two thirds more pre-onset cases.
 
 Every invocation of `run.py` writes one self-contained directory, `results/<stamp>/`: step
 zero at `detector/` (floor and ceiling predictions), one directory per trained run (params,
 history, checkpoints, head predictions and scores), `summary.csv` / `summary.txt`, and
 `figures/` (the ladder of head AUCs between floor and ceiling, the paired gains with
-intervals, ROC and PR curves on the pre-onset WC set, training curves). Every trained run
+intervals, ROC and PR curves on the pre-onset WC set, training curves). `summary.csv` also
+carries per-test-year rows. Every trained run
 writes only its head predictions and is paired against the cached floor on the same test
 files; `run.py summary <dir>` rebuilds the summary and figures from the files alone.
 

@@ -45,7 +45,8 @@ def runs_in(root: str) -> list[str]:
 
 def summary_rows(root: str) -> pd.DataFrame:
     """One row per run and horizon: pre-onset WC AUC of floor, ceiling and head with intervals,
-    the head's paired gain over the floor, epochs."""
+    the head's paired gain over the floor, epochs; then the same per test year (from the
+    predictions files, point estimates only) with `year` set."""
     det = _load(os.path.join(root, "detector", "summary.json"))
     if det is None:
         raise FileNotFoundError(f"no detector step under {root}")
@@ -95,10 +96,41 @@ def summary_rows(root: str) -> pd.DataFrame:
                     "trainable_params": res.get("trainable"),
                 }
             )
+    return pd.concat([pd.DataFrame(rows), per_year_rows(root)], ignore_index=True)
+
+
+def per_year_rows(root: str) -> pd.DataFrame:
+    """Pre-onset WC AUC per test year for the floor, the ceiling and every run's head."""
+    from tornado_onset.score import roc_auc
+
+    rows = []
+    runs = runs_in(root)
+    for h in range(_n_horizons(root)):
+        src = {
+            "floor": os.path.join(root, "detector", f"predictions_persistence_h{h}.csv"),
+            "ceiling": os.path.join(root, "detector", f"predictions_truth_h{h}.csv"),
+            **{d: os.path.join(root, d, "scores", f"predictions_head_h{h}.csv") for d in runs},
+        }
+        frames = {name: _wc_pre_onset(pd.read_csv(path)) for name, path in src.items()}
+        years = sorted(pd.to_datetime(frames["floor"]["time"], unit="s").dt.year.unique())
+        for year in years:
+            row: dict = {"horizon": h, "year": int(year)}
+            for name, df in frames.items():
+                sub = df[pd.to_datetime(df["time"], unit="s").dt.year == year]
+                row["pre_onset_cases"] = int(sub["pre_onset"].sum())
+                key = {"floor": "floor_auc", "ceiling": "ceiling_auc"}.get(name, f"{name}_auc")
+                row[key] = roc_auc(sub["label"].to_numpy(bool), sub["prob"].to_numpy(float))
+            rows.append(row)
     return pd.DataFrame(rows)
 
 
+def _n_horizons(root: str) -> int:
+    det = _load(os.path.join(root, "detector", "summary.json")) or {"horizons": []}
+    return len(det["horizons"])
+
+
 def format_table(df: pd.DataFrame) -> str:
+    df = df[df["run"].notna()] if "year" in df else df  # pooled rows only
     lines = []
     det = df[df["run"] == "detector"]
     lines.append("step 0, the published detector on one scan, pre-onset WC AUC:")
@@ -112,7 +144,7 @@ def format_table(df: pd.DataFrame) -> str:
     for r in df[df["run"] != "detector"].to_dict("records"):
         lo, hi = r["head_minus_floor_ci"]
         lines.append(
-            f"{r['step']:>4} {r['run']:<17} {r['horizon']}  {r['lead_min']:3.0f}   {r['head_auc']:.3f}  "
+            f"{int(r['step']):>4} {r['run']:<17} {r['horizon']}  {r['lead_min']:3.0f}   {r['head_auc']:.3f}  "
             f"{r['head_minus_floor']:+.3f} [{lo:+.3f}, {hi:+.3f}]   {int(r['best_epoch'])}"
         )
     return "\n".join(lines)
@@ -148,6 +180,7 @@ def make_figures(root: str, df: pd.DataFrame) -> list[str]:
     os.makedirs(fig_dir, exist_ok=True)
     runs = runs_in(root)
     horizons = sorted(df["horizon"].unique())
+    df = df[df["run"].notna()] if "year" in df else df  # pooled rows only
     det = df[df["run"] == "detector"].set_index("horizon")
     trained = df[df["run"] != "detector"]
     colors = plt.get_cmap("tab10")

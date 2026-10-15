@@ -13,11 +13,10 @@ class Config:
     out_dir: str = "results"  # one directory per invocation of run.py; this run lives under it
     # data: one Hub config per year (the authors' train / test partitions); validation is held
     # out from the training partition by day
-    train_years: list[int] = field(default_factory=lambda: [2015])
-    test_years: list[int] = field(default_factory=lambda: [2015])
+    train_years: list[int] = field(default_factory=lambda: [2014, 2015])
+    test_years: list[int] = field(default_factory=lambda: [2014, 2015])
     val_fraction: float = 0.15
     n_in: int = 2  # observed scans per sample (the oldest n_in); the rest are targets
-    input_scans: int = 2  # how many of the observed scans the model sees (the newest ones)
     horizons: int = 2
     # model
     weights: str | None = None  # detector state dict; default: local copy, else the Hub
@@ -45,5 +44,3 @@ class Config:
     def __post_init__(self) -> None:
         if self.n_in + self.horizons > 4:
             raise ValueError("a TorNet sample has four scans: n_in + horizons must be <= 4")
-        if not 1 <= self.input_scans <= self.n_in:
-            raise ValueError("input_scans must be between 1 and n_in")

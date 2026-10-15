@@ -12,7 +12,7 @@ data both come from the Hugging Face Hub:
 - weights: [`jakeryderv/tornet-detector-torch`](https://huggingface.co/jakeryderv/tornet-detector-torch),
   the published Keras checkpoint converted once to a torch state dict (18 MB)
 - data: [`jakeryderv/tornet`](https://huggingface.co/datasets/jakeryderv/tornet), TorNet v1.1 as
-  Parquet shards per partition and year (2015 is about 12 GB), streamed one shard at a time
+  Parquet shards per partition and year (2014 and 2015, about 23 GB), streamed one shard at a time
 
 Both are cached on first use; nothing to download by hand.
 
@@ -20,7 +20,7 @@ Both are cached on first use; nothing to download by hand.
 
 ```sh
 uv sync
-uv run run.py all                  # the published detector, then the three runs, into results/<stamp>/
+uv run run.py all                  # the published detector, then the two runs, into results/<stamp>/
 uv run run.py summary results/X    # rebuild the summary and figures of a finished directory
 ```
 
@@ -28,10 +28,9 @@ The runs form a ladder, each changing one thing, defined at the top of `run.py`:
 
 | step | run | what changes | question |
 |---|---|---|---|
-| 0 | `detector` | nothing trained: the published detector as designed, one scan, scored on the 2015 test set | what the detector already gives on the onset question. Newest observed scan: the floor. Real future scan: the ceiling |
-| 1 | `frozen_one_scan` | a new head trained on the onset target; same single scan, encoder frozen | the scope change alone |
-| 2 | `frozen_two_scans` | the second observed scan added, features concatenated | does time help when the features are fixed |
-| 3 | `finetuned` | encoder unfrozen at a tenth of the head's learning rate | does letting the features adapt buy more |
+| 0 | `detector` | nothing trained: the published detector as designed, one scan, scored on the test set | what the detector gives today. Newest observed scan: the floor. Real future scan: the ceiling |
+| 1 | `frozen` | encoder frozen, both observed scans in, features concatenated, a new head trained on the +5 / +10 min labels | can the detector's own features be re-aimed at onset |
+| 2 | `finetuned` | encoder unfrozen at a tenth of the head's learning rate | does adapting the features to the target buy more |
 
 Every invocation writes one self-contained directory, `results/<stamp>/`:
 
@@ -39,7 +38,7 @@ Every invocation writes one self-contained directory, `results/<stamp>/`:
 detector/            floor and ceiling predictions of step zero, summary.json
 <run>/               params.json, history.csv, checkpoints/, scores/ (head predictions,
                      floor and ceiling copied in, summary.json), results.json
-summary.csv/.txt     one row per run and horizon
+summary.csv/.txt     one row per run and horizon, then per test year
 figures/             ladder.png, delta.png, roc_pr.png, training.png
 ```
 

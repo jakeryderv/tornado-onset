@@ -1,10 +1,10 @@
 """The onset model: the published TorNet encoder on the observed scans, the authors' head on top.
 
-    observed scans (input_scans x 14 channels, polar)
+    the two observed scans (14 channels each, polar)
             |
     TorNet encoder, run per scan -> one 384 x 8 x 15 feature map per scan
             |
-    maps concatenated along channels (384 x input_scans)
+    maps concatenated along channels (768)
             |
     the authors' head: 1x1 convolutions to a per-cell logit map, max over cells
             -> P(tornado at +5), P(tornado at +10)
@@ -25,10 +25,10 @@ from tornado_onset.tornet import TorNetEncoder, TorNetHead, load_state_dict
 
 
 class OnsetModel(nn.Module):
-    def __init__(self, input_scans: int = 2, horizons: int = 2, start_filters: int = 48):
+    def __init__(self, n_in: int = 2, horizons: int = 2, start_filters: int = 48):
         super().__init__()
         self.encoder = TorNetEncoder(start_filters=start_filters)
-        self.head = TorNetHead(self.encoder.out_channels * input_scans, out_channels=horizons)
+        self.head = TorNetHead(self.encoder.out_channels * n_in, out_channels=horizons)
 
     def forward(self, x: torch.Tensor, coords: torch.Tensor) -> torch.Tensor:
         """(B, T, 14, A, R), (B, 2, A, R) -> per-horizon logits (B, horizons)."""
@@ -41,7 +41,7 @@ def build_model(cfg: Config) -> OnsetModel:
     """The model with its encoder initialised from the published detector's weights."""
     sd = load_state_dict(cfg.weights)
     start_filters = int(sd["encoder.blocks.0.0.conv.weight"].shape[0])
-    model = OnsetModel(cfg.input_scans, cfg.horizons, start_filters)
+    model = OnsetModel(cfg.n_in, cfg.horizons, start_filters)
     enc = {k.removeprefix("encoder."): v for k, v in sd.items() if k.startswith("encoder.")}
     model.encoder.load_state_dict(enc, strict=True)
     if not cfg.encoder_trainable:

@@ -123,9 +123,7 @@ def pattern_flags(frame_labels: np.ndarray, n_in: int) -> tuple[np.ndarray, np.n
 def test_loader(cfg: Config) -> DataLoader:
     paths = shard_paths("test", cfg.test_years)
     return DataLoader(
-        OnsetDataset(
-            paths, cfg.n_in, cfg.horizons, cfg.sample_weights, input_scans=cfg.input_scans
-        ),
+        OnsetDataset(paths, cfg.n_in, cfg.horizons, cfg.sample_weights),
         batch_size=cfg.batch_size,
         num_workers=cfg.workers,
         collate_fn=collate,
