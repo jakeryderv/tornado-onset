@@ -22,6 +22,9 @@ data/
 *.swp
 
 # quarto render output
-docs/report.html
-docs/report_files/
+report.html
+report.pdf
+report_files/
 /.quarto/
+
+**/*.quarto_ipynb

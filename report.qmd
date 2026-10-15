@@ -1,0 +1,199 @@
+---
+title: "Tornado onset from radar: predicting the next ten minutes"
+author: "Jake Van Slyke"
+date: last-modified
+format:
+  pdf:
+    documentclass: article
+    papersize: letter
+    geometry: margin=1in
+    fontsize: 11pt
+    number-sections: true
+    colorlinks: true
+  html:
+    toc: true
+    number-sections: true
+bibliography: references.bib
+abstract: |
+  Tornado detectors trained on radar answer whether a tornado is present now. This project asks
+  the question a forecaster needs answered a few minutes earlier: given the scans observed so
+  far, will a tornado appear in the next five and ten minutes when none is visible yet? We fine-tune
+  the published TorNet detector on that target, evaluate it only on cases where the tornado has
+  not yet appeared, and measure it against two fixed references, the detector applied to the
+  newest observed scan and the detector applied to the real future scan. On the 2015 slice the
+  fine-tuned model edges past the first reference and stays well short of the second. The
+  write-up sets out the problem, the data, the experimental setup, the model, and what the
+  first results say.
+---
+
+# The problem
+
+TorNet [@veillette2024] is a benchmark for tornado detection: storm-centred radar samples with
+a label saying whether a tornado is present. The published baseline detector reads one scan and
+scores it. That is a detection question, and detection is not what a warning forecaster is
+short of in the last minutes before a touchdown. What they need is a signal that arrives before
+the signature is unmistakable on the display.
+
+So the question here is a prediction one. Each TorNet sample holds four consecutive scans of a
+storm about five minutes apart, each with its own tornado label. We give a model the two oldest
+scans and ask it, separately, for the probability of a tornado in each of the two newest: about
+five and ten minutes after the last thing the model saw.
+
+The framing has to be protected from detection, because a tornado already on the radar is easy
+to carry forward. We therefore score the model only on *pre-onset* cases: tornado samples in
+which neither input scan is tornadic and the final target scan is. Samples where a tornado is
+already visible in an input scan are reported separately as *ongoing* and excluded from the
+positives. Every non-tornadic sample stays in as a negative. The score then answers "will one
+appear", not "will one persist".
+
+The negatives come in three flavours, following the TorNet paper: all nulls, random
+non-tornadic storms, and storms that were under a tornado warning but produced no tornado. The
+last of these is the hard case and the headline number throughout: separating a tornadic storm
+from clear air is easy, separating it from a warned storm that looked similar is the job.
+
+Two fixed references turn an AUC into a result. The published detector, frozen, is applied to
+the newest observed scan and scored against the future labels: this is the *floor*, the
+assumption that the future looks like the present, and it is what a forecaster already has.
+The same detector applied to the real future scan is the *ceiling*: what detection would give
+if the forecast were perfect. A model lives somewhere between the two, and the result we
+report is its paired bootstrap difference from the floor on the same files, with a 95%
+interval. The distance from floor to ceiling is the whole prize for forecasting radar, and on
+one year it is only 0.05 to 0.07 in AUC.
+
+That smallness, and the rarity of the positives, set the limits of what one year can say.
+Pre-onset tornado cases number about 200 to 275 per test year, so any pre-onset AUC carries an
+interval of roughly ±0.025, and a difference under about 0.03 is not resolvable. Every comparison
+in this project is paired, and seeds and additional years are the only instruments that shrink
+the noise.
+
+# The data
+
+TorNet v1.1 is released by MIT Lincoln Laboratory under CC BY 4.0: 203,133 samples from 2013
+to 2022, split by the authors into 171,666 training and 31,467 test samples, with 13,857
+confirmed tornadoes, 64,510 warned storms and 124,766 random storms. A sample is four NEXRAD
+dual-polarisation scans on a polar grid centred on the storm, 120 azimuths by 240 range gates
+of 250 m at two elevation tilts, for six products: reflectivity, radial velocity, specific
+differential phase, correlation coefficient, differential reflectivity and spectrum width.
+Alongside the radar come a range-folding mask for the two Doppler products, the four per-scan
+labels, the scan times, the storm's category and EF rating, the tornado's start and end times,
+and the chip's azimuth and range limits.
+
+For this project the dataset was repackaged on the Hugging Face Hub as `jakeryderv/tornet`:
+every sample and every field as Parquet, 256 samples per shard, the radar stored as half-precision
+arrays in physical units with empty gates as NaN. The conversion is lossless and was verified
+by reading every shard back completely and comparing random samples with the original files
+exactly. A year is one configuration of the dataset, so a training set is a list of years and a
+fold is a list of file patterns. The repackaging exists for a practical reason: the original
+release is one archive per year, and the experiments need to pick years, partitions and subsets
+without extracting and re-reading hundreds of thousands of small files.
+
+The model consumes a scan the way the published detector does. Each product is normalised to
+roughly the unit interval with the detector's fixed ranges, empty gates are filled with a
+background value of −3, the two range-folding channels are appended to make fourteen channels,
+and two coordinate channels, range and its inverse, are derived from the chip's limits for the
+detector's CoordConv layers. Keeping this representation is what lets the published weights
+serve as the starting point without any adaptation layer.
+
+# Setup
+
+The first slice is 2015: 19,721 training and 3,902 test samples, with 275 pre-onset cases in
+the test set. One year is enough to find out whether the approach works at all and cheap
+enough to run many variants; the full ten years are the obvious next step and the data layout
+makes that a configuration change.
+
+Validation is held out from the training partition by whole days, fifteen percent of them,
+never by random sample. Consecutive samples of one storm are near-duplicates, and a random
+split would let the validation set see storms the training set had already learned, which
+would make early stopping and checkpoint selection meaningless. Checkpoints are selected on
+the validation AUC of the model's own output and training stops two epochs after it last
+improved.
+
+Loading streams the Parquet shards of the configured years directly from the Hub's file cache,
+one shard at a time, reshuffling the shard order every epoch and the rows within each shard.
+A shard decompresses to under a gigabyte, so a handful of loader workers hold a handful of
+shards and no expanded copy of the dataset is ever written. The published detector's weights
+were converted once from the Keras checkpoint to a plain PyTorch state dict, verified to
+reproduce the original's logits to within 2×10^-5^ on the 2013 and 2014 test samples, and
+published alongside the data, so a fresh checkout needs nothing downloaded by hand.
+
+# The model
+
+The model is the published TorNet detector with as little changed as the question requires.
+The encoder is the TorNet CNN: four blocks of CoordConv 3×3 layers with 48, 96, 192 and 384
+filters, each block followed by 2×2 max pooling and dropout, ending in a 384-channel map on an
+8 × 15 grid of cells. It runs on each of the two input scans with shared weights, initialised
+from the published detector and fine-tuned at a tenth of the head's learning rate. The head is
+the authors' design as well: two 1×1 convolutions of 512 and 256 channels, a 1×1 convolution to
+one logit per cell, and the maximum over the cells, so that the map before the maximum is a
+spatial likelihood map of where the model expects the tornado. The whole model has 4.9 million
+parameters. The one loss is the weighted binary cross-entropy of each horizon's logit against
+the label of the corresponding future scan, with the authors' sample weights, trained with
+AdamW, a cosine schedule and mixed precision.
+
+What makes it a prediction model rather than a detector is where time enters, and with two
+scans that is a modest place. The two feature maps are concatenated cell by cell, so the head's
+first layer sees, for each cell, the features of the older and the newer scan side by side and
+can learn any weighted difference between them: a mesocyclone tightening over five minutes, a
+reflectivity core moving in. There is no recurrence and no attention; with two steps those
+would reduce to the same gated difference at many times the parameters, and the fork of this
+work that tested attention over scans found it tied the concatenation. The temporal reasoning
+available is a change detector at the feature level, and that is the honest description of what
+two scans allow.
+
+A second combiner makes the time rule explicit instead of learned. With two scans a feature's
+history is a line, so each feature can be extrapolated to each horizon as the newest value plus
+the per-minute change scaled by that horizon's real lead, read from the scan timestamps rather
+than assumed. One shared head, which may start from the published head's weights, then reads
+each extrapolated map. The two combiners have the same expressive power; they differ in
+inductive bias and in whether the clock is used. An optional consistency term pulls each
+extrapolated map toward the encoder's own features of the real future scan, with the target
+detached, which asks for a representation whose trend is predictive without drawing any pixels.
+
+An earlier version of the model carried more machinery: a U-Net decoder that drew the future
+velocity and reflectivity, trained by a heat-map-weighted L1 and by the frozen detector's
+cross-entropy on the drawn chip, meant as an auxiliary signal for the shared encoder. It was
+dropped after the comparison reported next.
+
+# Baseline and experiments
+
+All numbers below are on the 2015 test partition, pre-onset cases against warned storms, with
+paired bootstrap differences from the floor in brackets.
+
+| horizon | floor | ceiling | with the decoder | encoder + head |
+|:--|:--:|:--:|:--:|:--:|
+| +5 min | 0.709 | 0.764 | 0.716 (+0.007 [−0.030, +0.040]) | **0.739** (+0.030 [−0.006, +0.064]) |
+| +10 min | 0.722 | 0.796 | 0.729 (+0.007 [−0.015, +0.031]) | **0.735** (+0.013 [−0.011, +0.038]) |
+
+: Pre-onset WC AUC on 2015, one seed each. {#tbl-baseline}
+
+The decoder did not earn its place. The plain encoder-and-head model matched it at ten minutes
+and beat it at five, by +0.023 with an interval of +0.004 to +0.043 on the same files, with half
+the parameters and a third less time per epoch. The drawing losses were supposed to lift the
+head through the shared encoder; on this year they did not, and the decoder went. Both models
+overfit after the second or third epoch on a single year of training data, which is what early
+stopping now addresses.
+
+The result that remains is modest and, so far, consistent with every radar-only result in this
+line of work. Fine-tuning on the onset target buys about 0.01 to 0.03 over the published
+detector applied to the newest scan, with intervals that touch zero, and the ceiling stays
+0.055 to 0.074 higher. Two radar scans five minutes apart carry a little of the information
+needed to anticipate a tornado ten minutes out, and only a little.
+
+The experiments in progress test that reading and the two design choices made above: the same
+model under a second seed, to put a number on the seed noise; the extrapolation combiner with
+and without the consistency term; and, next, a gentler encoder learning rate against the
+overfitting and a frozen-encoder control that asks whether fine-tuning matters at all. Each is
+a fifteen-minute run, and their table replaces this paragraph when they finish.
+
+# What comes next
+
+Two things limit the present numbers, and the data layout now makes both cheap to address.
+Training on eight years instead of one attacks the overfitting directly and brings the test set
+to a size where differences of a few hundredths become readable. Beyond that, the ceiling says
+where the remaining signal is not: even a perfect radar forecast would add at most 0.07, so the
+larger gains have to come from information that is not in the radar chip, such as the
+near-storm environment, and from longer histories than two scans, where a recurrent combiner
+would finally have something to recur over.
+
+::: {#refs}
+:::

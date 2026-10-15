@@ -1,7 +1,7 @@
 # tornado-onset: project notes
 
-The report, `report.qmd` (Quarto): problem, data, splits and setup, modeling, baseline and
-experiments, self-contained. This file is the running log: results, decisions, open questions.
+The write-up is `report.qmd` at the repo root (Quarto, PDF target; `quarto render report.qmd`).
+This file is the running log: results, decisions, open questions.
 
 ## The question
 
