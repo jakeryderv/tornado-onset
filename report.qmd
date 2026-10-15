@@ -135,8 +135,8 @@ scans that is a modest place. The two feature maps are concatenated cell by cell
 first layer sees, for each cell, the features of the older and the newer scan side by side and
 can learn any weighted difference between them: a mesocyclone tightening over five minutes, a
 reflectivity core moving in. There is no recurrence and no attention; with two steps those
-would reduce to the same gated difference at many times the parameters, and the fork of this
-work that tested attention over scans found it tied the concatenation. The temporal reasoning
+would reduce to the same gated difference at many times the parameters, and earlier
+experiments with attention over scans found it tied the concatenation. The temporal reasoning
 available is a change detector at the feature level, and that is the honest description of what
 two scans allow.
 
