@@ -193,9 +193,20 @@ kept.](figures/training.png){#fig-training width=62%}
 
 # What's next
 
-The ceiling says where the rest of the signal isn't. Even a perfect radar forecast adds at most
-0.07 here, and two scans didn't find any of it, so the gains have to come from information that
-isn't in the chip, like the near-storm environment, and from longer histories than two scans,
-where a recurrent model would finally have something to recur over. Both are config changes away with the data on the Hub by
-year. The practical fix we'd make first is to the data itself: the shards store arrays as
-nested lists, and decoding them is where every run spends its time.
+The takeaway is simple: a detector can be pointed at the ten minutes before a tornado, and
+what it finds there is what it already finds in the latest scan. Its features carry a real
+early signal, which is why the floor sits at 0.73, but re-reading or fine-tuning them over two
+scans adds nothing to it, and even a perfect next scan would add only a few hundredths.
+
+The cheap next step is the full dataset. Ten years is a config change now, and it fixes the two
+things that limited this round: a fine-tune that was still improving when the epoch cap hit,
+and test intervals wide enough to hide a gain of a couple of hundredths.
+
+The larger step follows from where the signal isn't. The detector is good at detecting, and
+that's how it should be used. What's missing is the history and the future around the one scan
+it reads. Longer storm histories than two scans give a temporal model something to learn
+from, the way a storm has been evolving rather than one difference. And a forecasting model
+that learns those patterns could do two jobs: hand the detector the context that one scan
+leaves out, and predict the radar itself, so that the detector reads a forecast scan rather
+than the latest one. The ceiling in @tbl-onset is exactly that model with perfect predictions,
+and it is the first number in this writeup that clears the floor.
