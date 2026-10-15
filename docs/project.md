@@ -105,10 +105,13 @@ One seed each, all on 2015, defined at the top of `run.py` and run by `uv run ru
 | 2 | `frozen_two_scans` | the second observed scan added, features concatenated | does time help when the features are fixed |
 | 3 | `finetuned` | encoder unfrozen at a tenth of the head's learning rate | does letting the features adapt to the target buy more |
 
-Step zero is a run directory of its own (`experiments/detector/`, no timestamp) holding the
-floor and ceiling predictions; every trained run writes only its head predictions and is
-paired against that cached floor on the same test files. The step is made once per experiment
-directory and reused.
+Every invocation of `run.py` writes one self-contained directory, `results/<stamp>/`: step
+zero at `detector/` (floor and ceiling predictions), one directory per trained run (params,
+history, checkpoints, head predictions and scores), `summary.csv` / `summary.txt`, and
+`figures/` (the ladder of head AUCs between floor and ceiling, the paired gains with
+intervals, ROC and PR curves on the pre-onset WC set, training curves). Every trained run
+writes only its head predictions and is paired against the cached floor on the same test
+files; `run.py summary <dir>` rebuilds the summary and figures from the files alone.
 
 With one seed per config, differences inside about ±0.03 are read as ties; the paired bootstrap
 on the same test files is the interval reported.
@@ -148,5 +151,6 @@ stopping now addresses.
 - Torch only; uv, ruff, ty. No tests and no CLI since the trim of 2026-10-14: `run.py` at the
   root is the entry point, the package under `src/` holds the importable parts (detector port,
   data, model, training loop, scorer), about 1,100 lines in all.
-- Runs land under `experiments/` (git-ignored). The shared defaults are the `Config` dataclass
-  in `config.py`; the runs are a few overrides each in `run.py`.
+- Results land under `results/<stamp>/` (git-ignored; a finished directory is copied in by
+  hand, minus checkpoints). The shared defaults are the `Config` dataclass in `config.py`;
+  the runs are a few overrides each in `run.py`.

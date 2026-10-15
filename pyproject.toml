@@ -12,6 +12,7 @@ dependencies = [
   "pandas>=2.0",
   "pyarrow>=17",
   "huggingface_hub>=0.25",
+  "matplotlib>=3.11.2",
 ]
 
 [dependency-groups]

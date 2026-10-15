@@ -9,7 +9,7 @@ build/
 .ruff_cache/
 
 # runs, checkpoints and data never live in the repo
-experiments/
+results/
 *.pt
 *.keras
 *.h5

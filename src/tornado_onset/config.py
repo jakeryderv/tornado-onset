@@ -3,13 +3,14 @@ each."""
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 
 
 @dataclass
 class Config:
     exp_name: str = "onset"
-    exp_dir: str = "experiments"
+    out_dir: str = "results"  # one directory per invocation of run.py; this run lives under it
     # data: one Hub config per year (the authors' train / test partitions); validation is held
     # out from the training partition by day
     train_years: list[int] = field(default_factory=lambda: [2015])
@@ -34,7 +35,9 @@ class Config:
     weight_decay: float = 1e-4
     grad_clip: float = 1.0
     amp: bool = True
-    workers: int = 4  # each loader worker holds one decoded shard, about 1 GB
+    # loader workers: each holds one decoded shard (about 1 GB); ONSET_WORKERS overrides, for a
+    # machine with more cores and memory than the laptop default
+    workers: int = field(default_factory=lambda: int(os.environ.get("ONSET_WORKERS", "4")))
     seed: int = 1234
     # evaluation
     bootstrap: int = 1000

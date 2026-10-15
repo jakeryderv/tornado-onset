@@ -20,7 +20,8 @@ Both are cached on first use; nothing to download by hand.
 
 ```sh
 uv sync
-uv run run.py all   # the published detector, then the three runs, then the table
+uv run run.py all                  # the published detector, then the three runs, into results/<stamp>/
+uv run run.py summary results/X    # rebuild the summary and figures of a finished directory
 ```
 
 The runs form a ladder, each changing one thing, defined at the top of `run.py`:
@@ -32,10 +33,18 @@ The runs form a ladder, each changing one thing, defined at the top of `run.py`:
 | 2 | `frozen_two_scans` | the second observed scan added, features concatenated | does time help when the features are fixed |
 | 3 | `finetuned` | encoder unfrozen at a tenth of the head's learning rate | does letting the features adapt buy more |
 
-Step zero lands at `experiments/detector/` (floor and ceiling predictions, `summary.json`) and is
-made once; each trained run lands under `experiments/<name>_<timestamp>/` with `params.json`,
-`history.csv`, `checkpoints/{best,last}.pt`, `scores/` (head predictions, the floor and ceiling
-copied in, `summary.json`) and `results.json`. The shared defaults are the `Config` dataclass in
+Every invocation writes one self-contained directory, `results/<stamp>/`:
+
+```
+detector/            floor and ceiling predictions of step zero, summary.json
+<run>/               params.json, history.csv, checkpoints/, scores/ (head predictions,
+                     floor and ceiling copied in, summary.json), results.json
+summary.csv/.txt     one row per run and horizon
+figures/             ladder.png, delta.png, roc_pr.png, training.png
+```
+
+Set `ONSET_WORKERS` to raise the loader workers from the laptop default of 4 on a bigger
+machine. The shared defaults are the `Config` dataclass in
 `src/tornado_onset/config.py`; the package holds the detector port, the data pipeline, the
 model, the training loop and the scorer.
 

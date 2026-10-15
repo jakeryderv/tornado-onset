@@ -5,7 +5,6 @@ checkpoint is kept and scored."""
 from __future__ import annotations
 
 import dataclasses
-import datetime
 import json
 import logging
 import os
@@ -178,14 +177,13 @@ def git_revision() -> tuple[str | None, bool | None]:
 
 
 def make_expdir(cfg: Config) -> str:
-    stamp = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
-    path = os.path.join(cfg.exp_dir, f"{cfg.exp_name}_{stamp}")
+    path = os.path.join(cfg.out_dir, cfg.exp_name)
     os.makedirs(path, exist_ok=False)
     return path
 
 
 def detector_dir(cfg: Config) -> str:
-    return os.path.join(cfg.exp_dir, "detector")
+    return os.path.join(cfg.out_dir, "detector")
 
 
 def run_detector(cfg: Config) -> str:
