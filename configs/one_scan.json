@@ -1,0 +1,7 @@
+{
+  "_note": "Experiment 2: the model sees only the newest observed scan; same targets and the same pre-onset test set. Does the second scan buy anything?",
+  "train_years": [2015],
+  "test_years": [2015],
+  "input_scans": 1,
+  "exp_name": "one_scan"
+}

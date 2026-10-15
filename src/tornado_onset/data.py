@@ -236,7 +236,7 @@ class OnsetDataset(IterableDataset):
     shard are shuffled; DataLoader workers take disjoint shards.
 
     Per item:
-        x            (n_in, 14, A, R)      input scans
+        x            (input_scans, 14, A, R)  the newest `input_scans` of the observed scans
         coords       (2, A, R)
         future       (horizons, 14, A, R)  target scans
         labels       (horizons,)           tornado label of each target scan
@@ -256,11 +256,13 @@ class OnsetDataset(IterableDataset):
         keep: set[str] | None = None,
         shuffle: bool = False,
         seed: int = 0,
+        input_scans: int | None = None,
     ):
         if n_in + horizons > 4:
             raise ValueError("a TorNet sample has four scans")
         self.paths = list(paths)
         self.n_in, self.horizons = n_in, horizons
+        self.input_scans = input_scans or n_in
         self.weights = weights or {}
         self.keep = keep
         self.shuffle, self.seed, self.epoch = shuffle, seed, 0
@@ -293,7 +295,7 @@ class OnsetDataset(IterableDataset):
                 s = sample_from_row(row_of(shard, i))
                 t = s.times
                 yield {
-                    "x": torch.from_numpy(s.fields[:n]),
+                    "x": torch.from_numpy(s.fields[n - self.input_scans : n]),
                     "coords": torch.from_numpy(s.coords),
                     "future": torch.from_numpy(s.fields[n : n + h]),
                     "labels": torch.from_numpy(s.labels[n : n + h]),

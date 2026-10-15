@@ -13,10 +13,9 @@ authors' head on top.
     the authors' head: 1x1 convolutions to a per-cell logit map, max over cells
             -> P(tornado at +5), P(tornado at +10)
 
-Losses: weighted cross-entropy on the head's per-horizon logits against the labels of the
-future scans; with `consistency_weight`, an L1 pulling each extrapolated map f(+h) toward the
-encoder's own features of the real scan at +h (targets detached, so the encoder cannot cheat by
-flattening its features). The frozen published detector (the judge) is not part of training; it scores the
+One loss: weighted cross-entropy on the head's per-horizon logits against the labels of the
+future scans. With `input_scans: 1` the model sees only the newest observed scan (the
+single-scan control); targets and the pre-onset scoping are unchanged. The frozen published detector (the judge) is not part of training; it scores the
 floor (judge on the newest observed scan) and the ceiling (judge on the real future scan) at
 evaluation. A U-Net decoder drawing the future radar as an auxiliary task was tried and dropped:
 on 2015 it cost accuracy, time and half the parameters (see docs/project.md).
@@ -85,14 +84,13 @@ class OnsetModel(nn.Module):
             "cls_map": cls_map,
             "logits": cls_map.amax(dim=(2, 3)),
             "features": torch.cat([per_scan[:, -1], per_scan[:, -1] - per_scan[:, -2]], dim=1),
-            "future_features": future,
         }
 
 
 def build_model(cfg: Config) -> OnsetModel:
     """The model with its encoder (and optionally its head) initialised from the converted
     published weights."""
-    model = OnsetModel(cfg.n_in, cfg.horizons, cfg.start_filters, cfg.combiner)
+    model = OnsetModel(cfg.input_scans, cfg.horizons, cfg.start_filters, cfg.combiner)
     sd = torch.load(resolve_weights(cfg.weights), map_location="cpu")
     enc = {k.removeprefix("encoder."): v for k, v in sd.items() if k.startswith("encoder.")}
     model.encoder.load_state_dict(enc, strict=True)
@@ -105,16 +103,12 @@ def build_model(cfg: Config) -> OnsetModel:
 
 
 class Losses:
-    """Callable: (model output, batch) -> (total, {term: value}). With `consistency_weight` the
-    model is needed too, to encode the real future scans as (detached) targets."""
+    """Callable: (model output, batch) -> (total, {term: value})."""
 
-    def __init__(self, cfg: Config, device: torch.device, model: OnsetModel | None = None):
+    def __init__(self, cfg: Config, device: torch.device):
         self.cfg = cfg
         self.device = device
-        self.model = model
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
-        if cfg.consistency_weight and model is None:
-            raise ValueError("consistency_weight needs the model")
 
     def __call__(
         self, out: dict[str, torch.Tensor], batch: dict[str, Any]
@@ -122,15 +116,4 @@ class Losses:
         labels = batch["labels"].to(self.device)
         weight = batch["weight"].to(self.device)[:, None]
         cls = (self.bce(out["logits"], labels) * weight).mean()
-        total = self.cfg.cls_weight * cls
-        parts = {"cls": cls.item()}
-        if self.cfg.consistency_weight:
-            assert self.model is not None and "future_features" in out
-            with torch.no_grad():
-                target = self.model.scan_features(
-                    batch["future"].to(self.device), batch["coords"].to(self.device)
-                )
-            cons = (out["future_features"] - target.float()).abs().mean()
-            total = total + self.cfg.consistency_weight * cons
-            parts["consistency"] = cons.item()
-        return total, parts
+        return self.cfg.cls_weight * cls, {"cls": cls.item()}

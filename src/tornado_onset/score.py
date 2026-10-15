@@ -43,7 +43,9 @@ def test_loader(cfg: Config) -> DataLoader:
     patterns = (cfg.data_files or {}).get("test")
     paths = shard_paths("test", cfg.test_years, cfg.dataset, patterns)
     return DataLoader(
-        OnsetDataset(paths, cfg.n_in, cfg.horizons, cfg.sample_weights),
+        OnsetDataset(
+            paths, cfg.n_in, cfg.horizons, cfg.sample_weights, input_scans=cfg.input_scans
+        ),
         batch_size=cfg.batch_size,
         num_workers=cfg.workers,
         collate_fn=collate,

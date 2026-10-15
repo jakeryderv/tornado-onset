@@ -1,6 +1,0 @@
-{
-  "_note": "First slice: the 2015 training partition (validation held out by day), scored on the 2015 test partition. Encoder + head, early stopping.",
-  "train_years": [2015],
-  "test_years": [2015],
-  "exp_name": "onset_2015"
-}

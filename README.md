@@ -38,9 +38,9 @@ A local `weights/tornet_detector_v1.pt` takes precedence over the Hub copy.
 ## Runs
 
 ```sh
-uv run onset-train configs/smoke_2015.json                 # 6,000 samples
-uv run onset-train configs/y2015.json                      # the 2015 slice
-uv run onset-train configs/y2015.json --set seed=2          # another seed
+uv run onset-train configs/smoke.json                      # 6,000 samples, a quick check
+uv run onset-train configs/baseline.json                   # the model on 2015
+bash scripts/final_runs.sh                                 # baseline + the three experiments
 uv run onset-score experiments/<run>/checkpoints/last.pt   # rescore any checkpoint
 uv run onset-summary                                       # every finished run, one table
 ```

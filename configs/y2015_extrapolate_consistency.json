@@ -1,9 +1,0 @@
-{
-  "_note": "As y2015_extrapolate plus an L1 pulling each extrapolated map toward the encoder's features of the real future scan (detached targets).",
-  "train_years": [2015],
-  "test_years": [2015],
-  "combiner": "extrapolate",
-  "head_init": "pretrained",
-  "consistency_weight": 1.0,
-  "exp_name": "onset_2015_extrapolate_consistency"
-}

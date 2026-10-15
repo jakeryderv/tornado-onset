@@ -41,7 +41,8 @@ class Config:
         None  # {"train": [patterns], "test": [patterns]} overrides years
     )
     val_fraction: float = 0.15
-    n_in: int = 2
+    n_in: int = 2  # observed scans per sample (the oldest n_in); the rest are targets
+    input_scans: int = 2  # how many of the observed scans the model sees (the newest ones)
     horizons: int = 2
     max_files: int | None = None  # cap on training files, for smoke runs
     # model
@@ -57,8 +58,6 @@ class Config:
     head_init: str = "fresh"  # "pretrained": the published head's weights (extrapolate only)
     # loss
     cls_weight: float = 1.0
-    consistency_weight: float = 0.0  # L1 between f(+h) and the encoder's features of the real
-    # future scan (detached); extrapolate only
     sample_weights: dict[str, float] = field(
         default_factory=lambda: {"wN": 1.0, "w0": 1.0, "w1": 1.0, "w2": 2.0, "wW": 0.5}
     )
@@ -88,14 +87,12 @@ class Config:
             raise ValueError("combiner must be 'concat' or 'extrapolate'")
         if self.head_init not in ("fresh", "pretrained"):
             raise ValueError("head_init must be 'fresh' or 'pretrained'")
-        if self.combiner == "concat" and (
-            self.head_init == "pretrained" or self.consistency_weight
-        ):
-            raise ValueError(
-                "head_init 'pretrained' and consistency_weight need combiner 'extrapolate'"
-            )
-        if self.combiner == "extrapolate" and self.n_in < 2:
-            raise ValueError("combiner 'extrapolate' needs at least two input scans")
+        if not 1 <= self.input_scans <= self.n_in:
+            raise ValueError("input_scans must be between 1 and n_in")
+        if self.combiner == "concat" and self.head_init == "pretrained":
+            raise ValueError("head_init 'pretrained' needs combiner 'extrapolate'")
+        if self.combiner == "extrapolate" and self.input_scans < 2:
+            raise ValueError("combiner 'extrapolate' needs two input scans")
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)

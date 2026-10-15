@@ -76,3 +76,6 @@ def test_hub_shard_rows_and_dataset(hub_files: dict) -> None:
     assert b["future"].shape[1:] == (2, N_INPUT_CHANNELS, 120, 240)
     assert b["minutes"].shape[1] == 2 and torch.all(b["minutes"] > 0) and torch.all(b["dt_in"] > 0)
     assert {m["filename"] for it in items for m in it["meta"]} == keep
+    one = next(iter(OnsetDataset(paths, n_in=2, horizons=2, keep=keep, input_scans=1)))
+    assert one["x"].shape == (1, N_INPUT_CHANNELS, 120, 240)
+    assert one["frame_labels"].shape == (4,)  # scoping still sees both observed scans

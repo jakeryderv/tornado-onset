@@ -1,8 +1,0 @@
-{
-  "_note": "Extrapolation combiner: f(+h) = f_new + lead/dt * (f_new - f_old) with the real scan timing, one shared 384-channel head started from the published head.",
-  "train_years": [2015],
-  "test_years": [2015],
-  "combiner": "extrapolate",
-  "head_init": "pretrained",
-  "exp_name": "onset_2015_extrapolate"
-}

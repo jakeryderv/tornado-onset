@@ -103,19 +103,19 @@ scan. The paired delta vs persistence with its interval is the result.
 
 ## Runs
 
-| config | what | status |
-|---|---|---|
-| `y2015` | encoder + head on 2015, early stopping | ready; the seed is a `--set seed=N` away |
-| `y2015_extrapolate` | the extrapolate combiner, shared head from the published weights | ready |
-| `y2015_extrapolate_consistency` | as above plus the feature-space consistency loss | ready |
-| `smoke_2015` | `y2015` on 6,000 samples | utility |
+The final set: one baseline and three experiments, one seed each, all on 2015, run back to
+back by `scripts/final_runs.sh` and tabulated by `onset-summary`.
 
-Planned batch on 2015 (not run): `y2015` seeds 1234 (the Hub-loader regression check against
-0.739 / 0.735), 2 and 3; `y2015` with `encoder_lr_scale` 0.03; `y2015` with
-`encoder_trainable` false; the two extrapolate configs. About 15 minutes each.
+| config | what it asks |
+|---|---|
+| `baseline` | the model: fine-tuned encoder on two scans, the authors' head, early stopping |
+| `frozen_encoder` | does fine-tuning on the onset target matter? (`encoder_trainable: false`) |
+| `one_scan` | does the second scan buy anything? the model sees only the newest observed scan, same targets and test set (`input_scans: 1`) |
+| `extrapolate` | a fixed time rule instead of a learned one: f(+h) = f_new + lead/dt · (f_new − f_old) with the real clock, one shared head from the published weights |
+| `smoke` | the baseline on 6,000 samples, for a quick check |
 
-`onset-summary [roots]` tabulates every finished run (head vs floor and ceiling per config and
-horizon, mean ± sd over seeds); `--compare A B` gives the paired head-vs-head delta per seed.
+With one seed per config, differences inside about ±0.03 are read as ties; the paired bootstrap
+on the same test files is the interval reported.
 
 ### 2015 result (2026-10-14, before the decoder was dropped)
 

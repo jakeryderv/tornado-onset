@@ -38,7 +38,6 @@ def test_forward_shapes(combiner: str) -> None:
     assert out["features"].shape[:2] == (2, 2 * 8 * 8)
     assert torch.equal(out["logits"], out["cls_map"].amax(dim=(2, 3)))
     if combiner == "extrapolate":
-        assert out["future_features"].shape == (2, 2, 8 * 8, -(-AZ // 16), -(-RNG // 16))
         assert m.head.heatmap.out_channels == 1  # one shared head, the published shape
 
 
@@ -52,33 +51,36 @@ def test_extrapolate_is_linear_in_lead() -> None:
     assert torch.allclose(f[:, 1], new + (new - old) * (10.0 / 5.0), atol=1e-6)
 
 
-@pytest.mark.parametrize(
-    "combiner,consistency", [("concat", 0.0), ("extrapolate", 0.0), ("extrapolate", 1.0)]
-)
-def test_loss_reaches_encoder_and_head(combiner: str, consistency: float) -> None:
-    cfg = Config(combiner=combiner, consistency_weight=consistency)
+def test_single_scan_model() -> None:
+    m = OnsetModel(n_in=1, horizons=2, start_filters=8).eval()
+    b = tiny_batch()
+    out = m(b["x"][:, -1:], b["coords"], b["minutes"], b["dt_in"])
+    assert out["logits"].shape == (2, 2) and out["features"].shape[1] == 8 * 8
+
+
+@pytest.mark.parametrize("combiner", ["concat", "extrapolate"])
+def test_loss_reaches_encoder_and_head(combiner: str) -> None:
     m = OnsetModel(n_in=2, horizons=2, start_filters=8, combiner=combiner)
     b = tiny_batch()
     out = m(b["x"], b["coords"], b["minutes"], b["dt_in"])
-    total, parts = Losses(cfg, torch.device("cpu"), m)(out, b)
-    assert set(parts) == ({"cls", "consistency"} if consistency else {"cls"})
-    assert torch.isfinite(total)
+    total, parts = Losses(Config(combiner=combiner), torch.device("cpu"))(out, b)
+    assert set(parts) == {"cls"} and torch.isfinite(total)
     total.backward()
     assert all(p.grad is not None for p in m.encoder.parameters())
     assert all(p.grad is not None for p in m.head.parameters())
 
 
-def test_config_combiner_rules() -> None:
+def test_config_rules(tmp_path) -> None:
     with pytest.raises(ValueError, match="combiner"):
         Config(combiner="lstm")
     with pytest.raises(ValueError, match="extrapolate"):
         Config(combiner="concat", head_init="pretrained")
-    with pytest.raises(ValueError, match="extrapolate"):
-        Config(combiner="concat", consistency_weight=1.0)
-    Config(combiner="extrapolate", head_init="pretrained", consistency_weight=1.0)
-
-
-def test_config_rejects_unknown_keys(tmp_path) -> None:
+    with pytest.raises(ValueError, match="two input scans"):
+        Config(combiner="extrapolate", input_scans=1)
+    with pytest.raises(ValueError, match="input_scans"):
+        Config(input_scans=3)
+    Config(combiner="extrapolate", head_init="pretrained")
+    Config(input_scans=1)
     p = tmp_path / "c.json"
     p.write_text(json.dumps({"epochs": 1, "bogus": 2}))
     with pytest.raises(ValueError, match="bogus"):
@@ -90,8 +92,8 @@ def test_config_rejects_unknown_keys(tmp_path) -> None:
 
 
 def test_end_to_end_tiny_run(hub_files: dict, tmp_path) -> None:
-    """Two epochs on 24 samples of one Hub shard with the real weights, scoring on 12, and the
-    summary over two such runs."""
+    """Two epochs on 24 samples of one Hub shard with the real weights, scoring on a shard, and
+    the summary over two such runs (the second one single-scan)."""
     from tornado_onset.train import run
 
     base = dict(
@@ -116,17 +118,7 @@ def test_end_to_end_tiny_run(hub_files: dict, tmp_path) -> None:
         s = json.load(f)
     assert len(s["horizons"]) == 2 and s["horizons"][0]["n"] == 256
     assert set(results["pre_onset_WC_AUC"]["h0"]) == {"persistence", "truth", "head"}
-    run(
-        load_config(
-            None,
-            exp_name="u",
-            seed=7,
-            combiner="extrapolate",
-            head_init="pretrained",
-            consistency_weight=0.5,
-            **base,
-        )
-    )
+    run(load_config(None, exp_name="u", seed=7, input_scans=1, **base))
     runs = find_runs([str(tmp_path / "exp")])
     assert len(runs) == 2
     rows = [r for run_dir in runs for r in run_rows(run_dir)]

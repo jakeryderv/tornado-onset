@@ -50,7 +50,14 @@ def make_loaders(cfg: Config) -> tuple[DataLoader, DataLoader | None, dict[str, 
     def loader(keep: set[str], shuffle: bool) -> DataLoader:
         return DataLoader(
             OnsetDataset(
-                paths, cfg.n_in, cfg.horizons, cfg.sample_weights, keep, shuffle, cfg.seed
+                paths,
+                cfg.n_in,
+                cfg.horizons,
+                cfg.sample_weights,
+                keep,
+                shuffle,
+                cfg.seed,
+                cfg.input_scans,
             ),
             batch_size=cfg.batch_size,
             num_workers=cfg.workers,
@@ -213,7 +220,7 @@ def run(cfg: Config) -> dict[str, Any]:
     logging.info("model: %s params, %s trainable", f"{n_params:,}", f"{n_train:,}")
     with open(os.path.join(expdir, "params.json"), "w") as f:
         json.dump({"config": cfg.to_dict(), "params": n_params, "trainable": n_train}, f, indent=2)
-    history, best_path, last_path = fit(cfg, model, Losses(cfg, device, model), device, expdir)
+    history, best_path, last_path = fit(cfg, model, Losses(cfg, device), device, expdir)
     model.load_state_dict(torch.load(best_path, map_location=device))
     summary = evaluate(cfg, model, device, os.path.join(expdir, "scores"), judge)
     commit, dirty = git_revision()
