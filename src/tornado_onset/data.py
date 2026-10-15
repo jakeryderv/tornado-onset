@@ -1,26 +1,26 @@
-"""Reading TorNet samples and turning them into the detector's tensors.
+"""TorNet samples from the Hugging Face Hub, turned into the detector's tensors.
 
-A TorNet sample is a netCDF file with four radar scans about five minutes apart, each
-(azimuth=120, range=240, tilt=2) for six products, plus a range-folded mask for the two Doppler
-products, a tornado label per scan and event metadata. The published detector consumes, per scan,
-the six products normalised to roughly [-1, 1] with empty gates set to ``BACKGROUND``, the two
-range-folded channels appended (14 channels), and two CoordConv coordinate channels (range and
-inverse range). Everything here is channels-first.
+The dataset `jakeryderv/tornet` holds every TorNet v1.1 sample as Parquet: four radar scans
+about five minutes apart, each (azimuth=120, range=240, tilt=2) for six products in physical
+units (NaN where empty), the range-folded mask, a label per scan, scan times and event metadata.
+One config per year (`"2015"` has `train` and `test` splits), or explicit `data_files` patterns
+for any subset. Shards are cached and memory-mapped by `datasets`, so a year downloads once.
+
+The published detector consumes, per scan, the six products normalised to roughly [-1, 1] with
+empty gates set to ``BACKGROUND``, the two range-folded channels appended (14 channels), and two
+CoordConv coordinate channels (range and inverse range). Everything here is channels-first.
 """
 
 from __future__ import annotations
 
-import datetime
-import os
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-import pandas as pd
 import torch
-import xarray as xr
 from torch.utils.data import Dataset
 
+HF_DATASET = "jakeryderv/tornet"
 ALL_VARIABLES = ["DBZ", "VEL", "KDP", "RHOHV", "ZDR", "WIDTH"]
 CHANNEL_MIN_MAX = {
     "DBZ": (-20.0, 60.0),
@@ -34,9 +34,7 @@ BACKGROUND = -3.0  # the detector's fill value for empty gates, in normalised un
 N_SWEEPS = 2
 N_RADAR_CHANNELS = N_SWEEPS * len(ALL_VARIABLES)  # 12
 N_INPUT_CHANNELS = N_RADAR_CHANNELS + N_SWEEPS  # + 2 range-folded channels = 14
-CATEGORIES = {0: "TOR", 1: "NUL", 2: "WRN"}
 CHANNEL_INDEX = {v: [N_SWEEPS * i, N_SWEEPS * i + 1] for i, v in enumerate(ALL_VARIABLES)}
-_EPOCH = datetime.datetime(1970, 1, 1)
 
 
 def channel_indices(products: list[str]) -> list[int]:
@@ -91,9 +89,10 @@ def coordinates(
 
 @dataclass
 class Sample:
-    """One TorNet file, every scan: fields (T, 14, A, R) in the detector's representation,
+    """One TorNet sample, every scan: fields (T, 14, A, R) in the detector's representation,
     coords (2, A, R), one label per scan, times in epoch seconds, and event metadata."""
 
+    filename: str
     fields: np.ndarray
     coords: np.ndarray
     labels: np.ndarray
@@ -106,43 +105,28 @@ class Sample:
     rng_center_km: float
 
 
-def _to_epoch(s: str) -> int:
-    return int((datetime.datetime.strptime(s, "%Y-%m-%d %H:%M:%S") - _EPOCH).total_seconds())
-
-
-def read_sample(path: str) -> Sample:
-    with xr.open_dataset(path) as ds:
-        frames = {v: ds[v].values for v in ALL_VARIABLES}  # (T, A, R, tilt)
-        rfm = ds["range_folded_mask"].values.astype(np.float32)
-        labels = ds["frame_labels"].values.astype(np.float32)
-        ef = int(ds.attrs["ef_number"])
-        labels[-1] = float(ef >= 0)  # the authors' v1.0 consistency fix
-        times = (ds["time"].values.astype(np.int64) / 1e9).astype(np.int64)
-        az = ds["azimuth_limits"].values
-        rng = ds["range_limits"].values
-        category = ds.attrs["category"]
-        event_id = int(ds.attrs["event_id"])
-        if ef >= 0 and "tornado_start_time" in ds.attrs:
-            start, end = (
-                _to_epoch(ds.attrs["tornado_start_time"]),
-                _to_epoch(ds.attrs["tornado_end_time"]),
-            )
-        else:
-            start = end = 0
+def sample_from_row(row: dict[str, Any]) -> Sample:
+    """A row of the Hub dataset (numpy format) -> the detector's tensors."""
+    frames = {v: np.asarray(row[v], dtype=np.float32) for v in ALL_VARIABLES}  # (T, A, R, tilt)
+    rfm = np.asarray(row["range_folded_mask"], dtype=np.float32)
     fields = np.concatenate([normalize_fields(frames), rfm], axis=-1)  # (T, A, R, 14)
+    ef = int(row["ef_number"])
+    labels = np.asarray(row["frame_labels"], dtype=np.float32).copy()
+    labels[-1] = float(ef >= 0)  # the authors' v1.0 consistency fix
+    az = (float(row["az_lower"]), float(row["az_upper"]))
+    rng = (float(row["rng_lower"]), float(row["rng_upper"]))
     return Sample(
+        filename=str(row["filename"]),
         fields=np.ascontiguousarray(fields.transpose(0, 3, 1, 2)),
-        coords=coordinates(
-            (float(az[0]), float(az[1])), (float(rng[0]), float(rng[1])), fields.shape[1:3]
-        ),
+        coords=coordinates(az, rng, fields.shape[1:3]),
         labels=labels,
-        times=times,
-        category=category,
+        times=np.asarray(row["time"], dtype=np.int64),
+        category=str(row["category"]),
         ef_number=ef,
-        event_id=event_id,
-        tornado_start=start,
-        tornado_end=end,
-        rng_center_km=float((rng[0] + rng[1]) / 2e3),
+        event_id=int(row["event_id"]),
+        tornado_start=int(row["tornado_start_time"]),
+        tornado_end=int(row["tornado_end_time"]),
+        rng_center_km=(rng[0] + rng[1]) / 2e3,
     )
 
 
@@ -159,75 +143,80 @@ def sample_weight(category: str, ef_number: int, w: dict[str, float]) -> float:
     return float(w.get("w2", 2.0))
 
 
-def data_root() -> str:
-    try:
-        return os.environ["TORNET_ROOT"]
-    except KeyError as e:
-        raise RuntimeError("set TORNET_ROOT to the directory holding catalog.csv") from e
+def load_split(
+    partition: str,
+    years: list[int],
+    dataset: str = HF_DATASET,
+    data_files: dict[str, Any] | None = None,
+):
+    """A `datasets.Dataset` for one partition: the per-year configs of `years`, or, when
+    `data_files` is given, those explicit patterns (a fold, a shard for a test)."""
+    from datasets import concatenate_datasets, load_dataset
+
+    if data_files:
+        return load_dataset(dataset, data_files=data_files, split=partition)
+    parts = [load_dataset(dataset, str(y), split=partition) for y in years]
+    return parts[0] if len(parts) == 1 else concatenate_datasets(parts)
 
 
-def load_catalog(root: str) -> pd.DataFrame:
-    df = pd.read_csv(os.path.join(root, "catalog.csv"), parse_dates=["start_time", "end_time"])
-    df["year"] = df["start_time"].dt.year
-    df["day"] = df["start_time"].dt.strftime("%Y-%m-%d")
-    return df
-
-
-def select_files(catalog: pd.DataFrame, partition: str, years: list[int]) -> pd.DataFrame:
-    """Rows of one partition ("train" or "test") and set of years, catalog order."""
-    return catalog[(catalog["type"] == partition) & catalog["year"].isin(years)].reset_index(
-        drop=True
-    )
+def days_of(ds, indices: np.ndarray | None = None) -> np.ndarray:
+    """The UTC date of each sample's first scan, as 'YYYY-MM-DD' strings."""
+    times = np.asarray([t[0] for t in ds["time"]], dtype="int64")
+    if indices is not None:
+        times = times[indices]
+    return np.datetime_as_string(times.astype("datetime64[s]"), unit="D")
 
 
 def split_by_day(
-    rows: pd.DataFrame, val_fraction: float, seed: int
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+    ds, indices: np.ndarray, val_fraction: float, seed: int
+) -> tuple[np.ndarray, np.ndarray]:
     """Hold out whole days for validation so consecutive scans of one storm never straddle the
-    split. Returns (train_rows, val_rows)."""
-    days = np.array(sorted(rows["day"].unique()))
+    split. Returns (train_indices, val_indices) into `ds`."""
+    days = days_of(ds, indices)
+    unique = np.array(sorted(set(days)))
     rng = np.random.default_rng(seed)
-    rng.shuffle(days)
-    n_val = round(len(days) * val_fraction)
-    val_days = set(days[:n_val])
-    is_val = rows["day"].isin(val_days)
-    return rows[~is_val].reset_index(drop=True), rows[is_val].reset_index(drop=True)
+    rng.shuffle(unique)
+    val_days = set(unique[: round(len(unique) * val_fraction)])
+    is_val = np.array([d in val_days for d in days])
+    return indices[~is_val], indices[is_val]
 
 
 class OnsetDataset(Dataset):
-    """The oldest `n_in` scans in, the next `horizons` scans out.
+    """The oldest `n_in` scans in, the next `horizons` scans out, over a Hub dataset.
 
     Per item:
         x            (n_in, 14, A, R)      input scans
         coords       (2, A, R)
-        future       (horizons, 14, A, R)  target scans (regression targets are a subset)
+        future       (horizons, 14, A, R)  target scans
         labels       (horizons,)           tornado label of each target scan
         frame_labels (n_in + horizons,)    every scan's label, for scoping the evaluation
         minutes      (horizons,)           lead from the last input scan, real timestamps
+        dt_in        ()                    minutes between the last two input scans
         weight       ()                    the authors' sample weight
         meta         filename, category, ef_number, event_id, time (last input), times
     """
 
     def __init__(
         self,
-        root: str,
-        files: list[str],
+        ds,
         n_in: int = 2,
         horizons: int = 2,
         weights: dict[str, float] | None = None,
+        indices: np.ndarray | list[int] | None = None,
     ):
         if n_in + horizons > 4:
             raise ValueError("a TorNet sample has four scans")
-        self.root, self.files = root, list(files)
+        self.ds = ds.with_format("numpy")
+        self.indices = np.arange(len(ds)) if indices is None else np.asarray(indices)
         self.n_in, self.horizons = n_in, horizons
         self.weights = weights or {}
 
     def __len__(self) -> int:
-        return len(self.files)
+        return len(self.indices)
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
         n, h = self.n_in, self.horizons
-        s = read_sample(os.path.join(self.root, self.files[idx]))
+        s = sample_from_row(self.ds[int(self.indices[idx])])
         t = s.times
         return {
             "x": torch.from_numpy(s.fields[:n]),
@@ -236,9 +225,10 @@ class OnsetDataset(Dataset):
             "labels": torch.from_numpy(s.labels[n : n + h]),
             "frame_labels": torch.from_numpy(s.labels[: n + h]),
             "minutes": torch.from_numpy(((t[n : n + h] - t[n - 1]) / 60).astype(np.float32)),
+            "dt_in": torch.tensor((t[n - 1] - t[max(n - 2, 0)]) / 60, dtype=torch.float32),
             "weight": torch.tensor(sample_weight(s.category, s.ef_number, self.weights)),
             "meta": {
-                "filename": self.files[idx],
+                "filename": s.filename,
                 "category": s.category,
                 "ef_number": s.ef_number,
                 "event_id": s.event_id,

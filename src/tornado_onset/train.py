@@ -19,25 +19,23 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from tornado_onset.config import Config
-from tornado_onset.data import OnsetDataset, collate, load_catalog, select_files, split_by_day
+from tornado_onset.data import OnsetDataset, collate, load_split, split_by_day
 from tornado_onset.metrics import roc_auc
 from tornado_onset.model import Losses, OnsetModel, build_model
 from tornado_onset.score import evaluate, headline
 from tornado_onset.tornet import load_detector
 
 
-def make_loaders(cfg: Config, root: str) -> tuple[DataLoader, DataLoader | None, dict[str, int]]:
-    rows = select_files(load_catalog(root), "train", cfg.train_years)
+def make_loaders(cfg: Config) -> tuple[DataLoader, DataLoader | None, dict[str, int]]:
+    ds = load_split("train", cfg.train_years, cfg.dataset, cfg.data_files)
+    indices = np.arange(len(ds))
     if cfg.max_files:
-        rows = (
-            rows.sample(frac=1, random_state=cfg.seed).iloc[: cfg.max_files].reset_index(drop=True)
-        )
-    train_rows, val_rows = split_by_day(rows, cfg.val_fraction, cfg.seed)
+        indices = np.sort(np.random.default_rng(cfg.seed).permutation(len(ds))[: cfg.max_files])
+    train_idx, val_idx = split_by_day(ds, indices, cfg.val_fraction, cfg.seed)
 
-    def loader(r: pd.DataFrame, shuffle: bool) -> DataLoader:
-        ds = OnsetDataset(root, r["filename"].tolist(), cfg.n_in, cfg.horizons, cfg.sample_weights)
+    def loader(idx: np.ndarray, shuffle: bool) -> DataLoader:
         return DataLoader(
-            ds,
+            OnsetDataset(ds, cfg.n_in, cfg.horizons, cfg.sample_weights, idx),
             batch_size=cfg.batch_size,
             shuffle=shuffle,
             num_workers=cfg.workers,
@@ -46,13 +44,15 @@ def make_loaders(cfg: Config, root: str) -> tuple[DataLoader, DataLoader | None,
             persistent_workers=cfg.workers > 0,
         )
 
+    from tornado_onset.data import days_of
+
     counts = {
-        "train_files": len(train_rows),
-        "train_days": int(train_rows["day"].nunique()),
-        "val_files": len(val_rows),
-        "val_days": int(val_rows["day"].nunique()),
+        "train_files": len(train_idx),
+        "train_days": len(set(days_of(ds, train_idx))),
+        "val_files": len(val_idx),
+        "val_days": len(set(days_of(ds, val_idx))) if len(val_idx) else 0,
     }
-    return loader(train_rows, True), loader(val_rows, False) if len(val_rows) else None, counts
+    return loader(train_idx, True), loader(val_idx, False) if len(val_idx) else None, counts
 
 
 def run_epoch(
@@ -102,10 +102,10 @@ def run_epoch(
 
 
 def fit(
-    cfg: Config, model: OnsetModel, losses: Losses, device: torch.device, expdir: str, root: str
+    cfg: Config, model: OnsetModel, losses: Losses, device: torch.device, expdir: str
 ) -> tuple[list[dict[str, Any]], str, str]:
     """Train; returns (history, best checkpoint path, last checkpoint path)."""
-    train_loader, val_loader, counts = make_loaders(cfg, root)
+    train_loader, val_loader, counts = make_loaders(cfg)
     logging.info("files: %s", counts)
     enc = [p for p in model.encoder.parameters() if p.requires_grad]
     enc_ids = {id(p) for p in model.encoder.parameters()}
@@ -184,7 +184,7 @@ def make_expdir(cfg: Config) -> str:
     return path
 
 
-def run(cfg: Config, root: str) -> dict[str, Any]:
+def run(cfg: Config) -> dict[str, Any]:
     """Train, keep the best checkpoint, score it; everything under a fresh run directory."""
     torch.manual_seed(cfg.seed)
     np.random.seed(cfg.seed)
@@ -198,9 +198,9 @@ def run(cfg: Config, root: str) -> dict[str, Any]:
     logging.info("model: %s params, %s trainable", f"{n_params:,}", f"{n_train:,}")
     with open(os.path.join(expdir, "params.json"), "w") as f:
         json.dump({"config": cfg.to_dict(), "params": n_params, "trainable": n_train}, f, indent=2)
-    history, best_path, last_path = fit(cfg, model, Losses(cfg, device), device, expdir, root)
+    history, best_path, last_path = fit(cfg, model, Losses(cfg, device), device, expdir)
     model.load_state_dict(torch.load(best_path, map_location=device))
-    summary = evaluate(cfg, model, device, os.path.join(expdir, "scores"), root, judge)
+    summary = evaluate(cfg, model, device, os.path.join(expdir, "scores"), judge)
     commit, dirty = git_revision()
     results: dict[str, Any] = {
         "exp_name": cfg.exp_name,

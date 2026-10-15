@@ -17,11 +17,12 @@ range gates by two tilts for six products (DBZ, VEL, KDP, RHOHV, ZDR, WIDTH), a 
 for the two Doppler products, a tornado label per scan, and event metadata. Inputs are the two
 oldest scans; targets are the two newest, at about +5 and +10 minutes from the last input.
 
-The full dataset is on the Hugging Face Hub as `jakeryderv/tornet` (Parquet, every field, one
-config per year plus a `catalog` config of the scalar fields), published 2026-10-14. The
-loader here still reads the netCDF files under `TORNET_ROOT`; switching it to
-`load_dataset("jakeryderv/tornet", "<year>")` is the next data change, after which the netCDF
-reader, `xarray` and `netCDF4` go.
+The data comes from the Hub dataset `jakeryderv/tornet` (Parquet, every netCDF field, one
+config per year plus a `catalog` config of the scalar fields; published 2026-10-14 from the
+original Zenodo release, CC BY 4.0). `load_split` fetches the per-year configs of
+`train_years` / `test_years`, or explicit `data_files` patterns; `datasets` caches and
+memory-maps the shards, and the dataset wrapper builds the detector's tensors per row. No local
+netCDF, no `TORNET_ROOT`.
 
 Partitions are the authors' `train` and `test` splits. Validation is held out from the training
 partition by whole days, never by random sample, because consecutive scans of one storm are near
@@ -120,8 +121,8 @@ stopping now addresses.
 
 ## Conventions
 
-- Torch only; uv, ruff, ty, pytest. `uv run pytest` includes two tiny runs on 24 real files
-  when `TORNET_ROOT` is set.
+- Torch only; uv, ruff, ty, pytest. `uv run pytest` includes two tiny runs on 24 samples of one
+  Hub shard (skipped offline).
 - Runs land under `$EXP_DIR` (default `experiments/`, git-ignored). Any `Config` key can be set
   in the JSON or with `--set key=value`; keys starting with `_` are notes.
 - `onset-score <checkpoint>` rescores any checkpoint with the config it was trained with.

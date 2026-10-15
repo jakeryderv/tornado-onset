@@ -20,37 +20,41 @@ def _log() -> None:
 
 
 class _LastScan(Dataset):
-    """The newest scan of each file, as the published detector was scored."""
+    """The newest scan of each sample, as the published detector was scored."""
 
-    def __init__(self, root: str, files: list[str]):
-        self.root, self.files = root, files
+    def __init__(self, ds, indices: list[int]):
+        self.ds, self.indices = ds.with_format("numpy"), indices
 
     def __len__(self) -> int:
-        return len(self.files)
+        return len(self.indices)
 
     def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor]:
-        from tornado_onset.data import read_sample
+        from tornado_onset.data import sample_from_row
 
-        s = read_sample(os.path.join(self.root, self.files[i]))
+        s = sample_from_row(self.ds[self.indices[i]])
         return torch.from_numpy(s.fields[-1]), torch.from_numpy(s.coords)
 
 
 def verify_reference(
-    weights: str, reference_csv: str, root: str, batch_size: int, workers: int
+    weights: str, reference_csv: str, batch_size: int, workers: int, years: list[int] | None = None
 ) -> float:
-    """Run the converted detector over the files in a reference predictions CSV and return the
-    largest absolute logit difference."""
+    """Run the converted detector over the samples in a reference predictions CSV (read from
+    the Hub's test splits) and return the largest absolute logit difference."""
+    from tornado_onset.data import load_split
     from tornado_onset.metrics import roc_auc
     from tornado_onset.tornet import load_detector
 
     ref = pd.read_csv(reference_csv)
+    if years:
+        ref = ref[ref["year"].isin(years)].reset_index(drop=True)
+    ds = load_split("test", sorted(ref["year"].unique().tolist()))
+    where = {f: i for i, f in enumerate(ds["filename"])}
+    indices = [where[f] for f in ref["filename"]]
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = load_detector(weights, device)
     torch.backends.cudnn.allow_tf32 = False  # compare in true fp32
     torch.backends.cuda.matmul.allow_tf32 = False
-    loader = DataLoader(
-        _LastScan(root, ref["filename"].tolist()), batch_size=batch_size, num_workers=workers
-    )
+    loader = DataLoader(_LastScan(ds, indices), batch_size=batch_size, num_workers=workers)
     logits = []
     with torch.no_grad():
         for x, c in loader:
@@ -69,7 +73,6 @@ def verify_reference(
 
 
 def convert_weights(argv: list[str] | None = None) -> None:
-    from tornado_onset.data import data_root
     from tornado_onset.tornet import convert
 
     p = argparse.ArgumentParser(
@@ -84,6 +87,7 @@ def convert_weights(argv: list[str] | None = None) -> None:
         "results/reference/predictions_pretrained_2013_2014_fp32.csv is the Keras model in fp32",
     )
     p.add_argument("--tolerance", type=float, default=1e-4, help="max |logit difference| allowed")
+    p.add_argument("--years", nargs="*", type=int, help="restrict the verification to these years")
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--workers", type=int, default=8)
     a = p.parse_args(argv)
@@ -93,7 +97,7 @@ def convert_weights(argv: list[str] | None = None) -> None:
         "wrote %s: %d tensors, %d parameters", a.out, len(sd), sum(v.numel() for v in sd.values())
     )
     if a.verify:
-        worst = verify_reference(a.out, a.verify, data_root(), a.batch_size, a.workers)
+        worst = verify_reference(a.out, a.verify, a.batch_size, a.workers, a.years)
         if worst > a.tolerance:
             logging.error("max logit difference %.3e exceeds %.1e", worst, a.tolerance)
             sys.exit(1)
@@ -101,7 +105,6 @@ def convert_weights(argv: list[str] | None = None) -> None:
 
 
 def train(argv: list[str] | None = None) -> None:
-    from tornado_onset.data import data_root
     from tornado_onset.train import run
 
     p = argparse.ArgumentParser(
@@ -119,12 +122,11 @@ def train(argv: list[str] | None = None) -> None:
     )
     a = p.parse_args(argv)
     _log()
-    run(load_config(a.config, **_overrides(a.set)), data_root())
+    run(load_config(a.config, **_overrides(a.set)))
 
 
 def score(argv: list[str] | None = None) -> None:
     """Score an existing checkpoint with the config it was trained with (score-only mode)."""
-    from tornado_onset.data import data_root
     from tornado_onset.model import build_model
     from tornado_onset.score import evaluate
 
@@ -148,7 +150,7 @@ def score(argv: list[str] | None = None) -> None:
     model.load_state_dict(torch.load(a.checkpoint, map_location=device))
     stem = os.path.splitext(os.path.basename(a.checkpoint))[0]
     out = a.out or os.path.join(run_dir, f"scores_{stem}")
-    evaluate(cfg, model, device, out, data_root())
+    evaluate(cfg, model, device, out)
     logging.info("wrote %s", out)
 
 

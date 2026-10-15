@@ -18,9 +18,14 @@ DEFAULT_WEIGHTS = "weights/tornet_detector_v1.pt"
 
 @dataclass
 class Config:
-    # data: the authors' partitions; validation is held out from the training partition by day
+    # data: the Hub dataset's per-year configs (the authors' partitions), or explicit patterns;
+    # validation is held out from the training partition by day
+    dataset: str = "jakeryderv/tornet"
     train_years: list[int] = field(default_factory=lambda: [2015])
     test_years: list[int] = field(default_factory=lambda: [2015])
+    data_files: dict[str, Any] | None = (
+        None  # {"train": [patterns], "test": [patterns]} overrides years
+    )
     val_fraction: float = 0.15
     n_in: int = 2
     horizons: int = 2

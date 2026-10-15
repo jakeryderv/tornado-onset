@@ -22,7 +22,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from tornado_onset.config import Config
-from tornado_onset.data import OnsetDataset, collate, load_catalog, select_files
+from tornado_onset.data import OnsetDataset, collate, load_split
 from tornado_onset.metrics import paired_difference, views
 from tornado_onset.model import OnsetModel
 from tornado_onset.tornet import TorNetDetector, load_detector
@@ -39,11 +39,10 @@ def pattern_flags(frame_labels: np.ndarray, n_in: int) -> tuple[np.ndarray, np.n
     return (~inputs) & last, inputs, patterns
 
 
-def test_loader(cfg: Config, root: str) -> DataLoader:
-    files = select_files(load_catalog(root), "test", cfg.test_years)["filename"].tolist()
-    ds = OnsetDataset(root, files, cfg.n_in, cfg.horizons, cfg.sample_weights)
+def test_loader(cfg: Config) -> DataLoader:
+    ds = load_split("test", cfg.test_years, cfg.dataset, cfg.data_files)
     return DataLoader(
-        ds,
+        OnsetDataset(ds, cfg.n_in, cfg.horizons, cfg.sample_weights),
         batch_size=cfg.batch_size,
         shuffle=False,
         num_workers=cfg.workers,
@@ -58,12 +57,11 @@ def evaluate(
     model: OnsetModel,
     device: torch.device,
     out_dir: str,
-    root: str,
     judge: TorNetDetector | None = None,
 ) -> dict:
     model.eval()
     judge = judge or load_detector(cfg.weights, device)
-    loader = test_loader(cfg, root)
+    loader = test_loader(cfg)
     H = cfg.horizons
     views_of = VIEWS_OF
     rows: dict[str, list[list[dict]]] = {w: [[] for _ in range(H)] for w in views_of}

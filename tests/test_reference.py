@@ -13,12 +13,20 @@ from tornado_onset.tornet import load_detector
 REFERENCE = "results/reference/predictions_pretrained_2013_2014_fp32.csv"
 
 
-def test_logits_match_reference(tornet_root: str) -> None:
+def test_logits_match_reference(hub_files: dict) -> None:
+    """Eight 2013 reference samples, read from the Hub's 2013 test split (0.26 GB, cached)."""
     if not os.path.exists(DEFAULT_WEIGHTS):
         pytest.skip(f"{DEFAULT_WEIGHTS} missing: run onset-convert-weights")
-    ref = pd.read_csv(REFERENCE).sample(8, random_state=0)
+    from tornado_onset.data import load_split
+
+    ref = pd.read_csv(REFERENCE)
+    ref = ref[ref["year"] == 2013].sample(8, random_state=0)
+    ds = load_split("test", [2013])
+    where = {f: i for i, f in enumerate(ds["filename"])}
     det = load_detector(DEFAULT_WEIGHTS)
-    ds = _LastScan(tornet_root, ref["filename"].tolist())
+    scan = _LastScan(ds, [where[f] for f in ref["filename"]])
     with torch.no_grad():
-        out = np.array([det(x[None], c[None]).item() for x, c in (ds[i] for i in range(len(ds)))])
+        out = np.array(
+            [det(x[None], c[None]).item() for x, c in (scan[i] for i in range(len(scan)))]
+        )
     assert np.abs(out - ref["logit"].to_numpy()).max() < 1e-4
