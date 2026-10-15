@@ -30,3 +30,6 @@ report_files/
 **/*.quarto_ipynb
 slides.html
 slides_files/
+slides.pdf
+report.docx
+slides.pptx
