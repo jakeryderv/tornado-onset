@@ -20,3 +20,8 @@ data/
 .vscode/
 .idea/
 *.swp
+
+# quarto render output
+docs/report.html
+docs/report_files/
+/.quarto/
