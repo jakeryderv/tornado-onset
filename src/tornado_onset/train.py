@@ -29,8 +29,6 @@ from tornado_onset.tornet import load_detector
 def make_loaders(cfg: Config) -> tuple[DataLoader, DataLoader | None, dict[str, int]]:
     paths = shard_paths("train", cfg.train_years)
     df = metadata("train", cfg.train_years)
-    if cfg.max_files:  # the earliest files: a contiguous block of shards, not one row of each
-        df = df.sort_values(["day", "filename"]).head(cfg.max_files)
     train_keep, val_keep = split_by_day(df, cfg.val_fraction, cfg.seed)
 
     def loader(keep: set[str], shuffle: bool) -> DataLoader:

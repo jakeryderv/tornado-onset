@@ -1,8 +1,7 @@
 """Tornado onset: the published detector and three runs that build on it, on TorNet 2015.
 
-    uv run run.py all                      # every step in order, then the table
-    uv run run.py finetuned                # one step (step zero is made first if missing)
-    uv run run.py frozen_one_scan --smoke  # a few thousand files, one epoch: does the path run?
+    uv run run.py all          # every step in order, then the table
+    uv run run.py finetuned    # one step (step zero is made first if missing)
 
     step  run               what changes                          question
     0     detector          nothing trained: the published         what the detector already gives
@@ -40,7 +39,6 @@ RUNS: dict[str, dict[str, Any]] = {
     "frozen_two_scans": {"encoder_trainable": False, "input_scans": 2},
     "finetuned": {"encoder_trainable": True, "input_scans": 2},
 }
-SMOKE: dict[str, Any] = {"max_files": 3000, "epochs": 1, "bootstrap": 100, "exp_dir": "smoke"}
 
 
 def summary_table(root: str) -> str:
@@ -95,15 +93,13 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument("run", choices=["detector", *RUNS, "all"])
-    p.add_argument("--smoke", action="store_true", help="a short run to check the path")
     a = p.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
-    extra = SMOKE if a.smoke else {}
     names = list(RUNS) if a.run == "all" else [] if a.run == "detector" else [a.run]
-    run_detector(Config(exp_name="detector", **extra))
+    run_detector(Config(exp_name="detector"))
     for name in names:
-        run(Config(exp_name=name, **RUNS[name], **extra))
-    print(summary_table(Config(**extra).exp_dir))
+        run(Config(exp_name=name, **RUNS[name]))
+    print(summary_table(Config().exp_dir))
 
 
 if __name__ == "__main__":

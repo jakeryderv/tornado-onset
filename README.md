@@ -20,8 +20,7 @@ Both are cached on first use; nothing to download by hand.
 
 ```sh
 uv sync
-uv run run.py all                      # the published detector, then the three runs, then the table
-uv run run.py frozen_one_scan --smoke  # a few thousand files, one epoch: does the path run?
+uv run run.py all   # the published detector, then the three runs, then the table
 ```
 
 The runs form a ladder, each changing one thing, defined at the top of `run.py`:

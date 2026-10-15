@@ -147,6 +147,6 @@ stopping now addresses.
 
 - Torch only; uv, ruff, ty. No tests and no CLI since the trim of 2026-10-14: `run.py` at the
   root is the entry point, the package under `src/` holds the importable parts (detector port,
-  data, model, training loop, scorer), about 1,100 lines in all. `--smoke` runs a short pass.
+  data, model, training loop, scorer), about 1,100 lines in all.
 - Runs land under `experiments/` (git-ignored). The shared defaults are the `Config` dataclass
   in `config.py`; the runs are a few overrides each in `run.py`.
