@@ -8,7 +8,7 @@ from tornado_onset.cli import last_scans
 from tornado_onset.config import resolve_weights
 from tornado_onset.tornet import load_detector
 
-REFERENCE = "results/reference/predictions_pretrained_2013_2014_fp32.csv"
+REFERENCE = "tests/data/predictions_pretrained_2013_2014_fp32.csv"
 
 
 def test_logits_match_reference(hub_files: dict) -> None:

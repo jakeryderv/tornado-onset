@@ -30,7 +30,7 @@ partition, about 225 MB.
 To redo the weight conversion yourself and check it against the Keras model's fp32 logits:
 
 ```sh
-uv run onset-convert-weights --verify results/reference/predictions_pretrained_2013_2014_fp32.csv
+uv run onset-convert-weights --verify tests/data/predictions_pretrained_2013_2014_fp32.csv
 ```
 
 A local `weights/tornet_detector_v1.pt` takes precedence over the Hub copy.

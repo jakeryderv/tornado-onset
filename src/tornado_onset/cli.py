@@ -93,7 +93,7 @@ def convert_weights(argv: list[str] | None = None) -> None:
         "--verify",
         metavar="CSV",
         help="reference predictions CSV to compare logits against; "
-        "results/reference/predictions_pretrained_2013_2014_fp32.csv is the Keras model in fp32",
+        "tests/data/predictions_pretrained_2013_2014_fp32.csv is the Keras model in fp32",
     )
     p.add_argument("--tolerance", type=float, default=1e-4, help="max |logit difference| allowed")
     p.add_argument("--years", nargs="*", type=int, help="restrict the verification to these years")

@@ -84,7 +84,7 @@ cross-entropy on the drawn chip, as an auxiliary signal for the shared encoder. 
 head-only model matched or beat it (0.739 / 0.735 vs 0.716 / 0.729 pre-onset WC AUC at +5 /
 +10 min; +0.023 [+0.004, +0.043] paired at +5) with half the parameters and 30% less time per
 epoch, so it went, together with the segmentation_models_pytorch dependency. The last version
-with it is commit `82567d5`; its runs are in `results/y2015/`.
+with it is commit `82567d5`; its run directories were removed (numbers kept below).
 
 ## Evaluation
 
@@ -120,7 +120,7 @@ on the same test files is the interval reported.
 ### 2015 result (2026-10-14, before the decoder was dropped)
 
 Test partition: 3,902 samples, 275 pre-onset cases, 82 ongoing. Pre-onset cases vs warned
-storms (WC AUC), paired bootstrap against persistence in brackets. Runs in `results/y2015/`.
+storms (WC AUC), paired bootstrap against persistence in brackets.
 
 | horizon | floor | ceiling | decoder + judge losses, head | head-only |
 |---|---|---|---|---|

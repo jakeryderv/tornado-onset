@@ -1,7 +1,7 @@
 """Tables over finished runs: the head against the floor and ceiling per config and horizon,
 mean and spread across seeds, and paired comparisons between two configs on the same files.
 
-    onset-summary [ROOT ...]                 default roots: results/ and experiments/
+    onset-summary [ROOT ...]                 default root: experiments/
     onset-summary --compare EXP_A EXP_B      paired head-vs-head delta per seed, pre-onset WC
 """
 
@@ -136,7 +136,7 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("roots", nargs="*", default=["results", "experiments"])
+    p.add_argument("roots", nargs="*", default=["experiments"])
     p.add_argument("--compare", nargs=2, metavar=("EXP_A", "EXP_B"))
     p.add_argument("--bootstrap", type=int, default=1000)
     a = p.parse_args(argv)
