@@ -13,7 +13,7 @@ format:
 ## The problem
 
 - TorNet is a tornado **detection** benchmark: radar chips of a storm, labeled for whether a tornado is in them, and a published CNN that answers that from one scan
-- Detection isn't what's missing in the last minutes before a touchdown. A signal *before* the signature is obvious would be
+- Detection isn't what's missing in the last minutes before a touchdown. What's missing is a signal *before* the signature is obvious
 - So the question is **prediction**: given the two oldest of a sample's four scans, how likely is a tornado in each of the two newest, about +5 and +10 minutes out?
 
 ## Keeping it honest: what gets scored
@@ -76,7 +76,7 @@ format:
 ## Steps 1 and 2: what they say
 
 - **Step 1: no.** A new head on the frozen features doesn't beat the detector's own, and neither head capacity nor reweighting changes that
-- Its readout is about as good as its features get: more needs new information, not a better readout
+- The detector's readout is about as good as its features get: more needs new information, not a better readout
 - **Step 2: yes, with a caveat.** Only the second scan moved validation, and it carried to test: it carries signal the first scan doesn't
 - But false alarms doubled at the same recall, and the paired interval on the gain, [−0.06, +0.16], includes zero
 
