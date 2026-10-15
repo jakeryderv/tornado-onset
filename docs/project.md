@@ -17,6 +17,12 @@ range gates by two tilts for six products (DBZ, VEL, KDP, RHOHV, ZDR, WIDTH), a 
 for the two Doppler products, a tornado label per scan, and event metadata. Inputs are the two
 oldest scans; targets are the two newest, at about +5 and +10 minutes from the last input.
 
+The full dataset is on the Hugging Face Hub as `jakeryderv/tornet` (Parquet, every field, one
+config per year plus a `catalog` config of the scalar fields), published 2026-10-14. The
+loader here still reads the netCDF files under `TORNET_ROOT`; switching it to
+`load_dataset("jakeryderv/tornet", "<year>")` is the next data change, after which the netCDF
+reader, `xarray` and `netCDF4` go.
+
 Partitions are the authors' `train` and `test` splits. Validation is held out from the training
 partition by whole days, never by random sample, because consecutive scans of one storm are near
 duplicates. The first slice is 2015: 19,721 training files (16,717 train / 3,004 validation over
