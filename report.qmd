@@ -103,7 +103,7 @@ Five steps, each changing one thing; the first two stay on the task the detector
 for, to check the ingredients before the task changes.
 
 | step | what changes | the question |
-|:--:|:--|:--|
+|:---:|:---------------------|:------------------------|
 | 0 | Nothing trained. The published detector as designed, one scan. | What does it already give? On the onset task, the newest observed scan is the floor and the real future scan the ceiling. |
 | 1 | A new linear head on the frozen features, current scan, detection target. | Can a retrained head beat the detector at its own job? |
 | 2 | The scan five minutes earlier added, features averaged. | Does a second scan carry anything the first doesn't? |
@@ -121,7 +121,7 @@ establishes two assumptions the second pair leans on.
 ## Steps 1 and 2: frozen features on the detection task
 
 | configuration | validation AP (3 seeds) | test AP | at the locked threshold |
-|:--|:--:|:--:|:--|
+|:-----------------|:--------:|:------:|:-----------------|
 | original pretrained CNN | | 0.517 | 68 of 89 found, 276 false alarms |
 | step 1: current scan, linear head | 0.658 ± 0.005 | 0.508 | 70 found, 571 false alarms |
 | step 2: two-scan mean, linear head | 0.675 ± 0.001 | 0.548 | 69 found, 564 false alarms |
@@ -145,13 +145,19 @@ alarms, and the paired storm-group bootstrap on its AP gain, [−0.061, +0.155],
 on ten test storm groups. What it does establish is that the second scan carries signal the
 first doesn't, which is what steps 3 and 4 lean on.
 
+::: {.content-visible when-format="pdf"}
 ![Step 1 and 2 configurations on validation (left) and the held-out test precision-recall
 curves with locked operating points (right).](figures/jg_adaptations_pr.png){#fig-detection width=78%}
+:::
+::: {.content-visible unless-format="pdf"}
+![Step 1 and 2 configurations on validation (left) and the held-out test precision-recall
+curves with locked operating points (right).](figures/jg_adaptations_pr.png){#fig-detection width=100%}
+:::
 
 ## Steps 0, 3 and 4: the onset task
 
 | step | +5 min | paired vs floor | +10 min | paired vs floor |
-|:--|:--:|:--:|:--:|:--:|
+|:-------------|:---------:|:-----------:|:---------:|:-----------:|
 | 0, floor: detector on the newest scan | 0.731 [0.697, 0.767] | | 0.726 [0.701, 0.750] | |
 | 0, ceiling: detector on the future scan | 0.769 [0.734, 0.806] | +0.038 [+0.016, +0.063] | 0.797 [0.772, 0.822] | +0.071 [+0.048, +0.093] |
 | 3, frozen CNN, two scans, new head | 0.699 [0.662, 0.737] | −0.032 [−0.045, −0.020] | 0.710 [0.683, 0.736] | −0.017 [−0.024, −0.010] |
@@ -166,8 +172,14 @@ minutes before the label flips. The ceiling is only 0.04 higher at +5 and 0.07 a
 perfect picture of the next scan, read by this detector, adds that much and no more, and
 anything steps 3 and 4 gain has to fit inside it.
 
+::: {.content-visible when-format="pdf"}
 ![Each step's AUC with its 95% interval, between the floor and the ceiling, per
 horizon.](figures/ladder.png){#fig-ladder width=58%}
+:::
+::: {.content-visible unless-format="pdf"}
+![Each step's AUC with its 95% interval, between the floor and the ceiling, per
+horizon.](figures/ladder.png){#fig-ladder width=100%}
+:::
 
 Step 3 lands below the floor, and not by noise: −0.032 at +5 and −0.017 at +10, both
 intervals clear of zero. A fresh head on the frozen features, even with two scans to difference,

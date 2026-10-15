@@ -56,7 +56,7 @@ format:
 ## The ladder: five steps, one change each
 
 | step | what changes | question |
-|:--:|:--|:--|
+|:---:|:----------------------|:----------------------|
 | 0 | nothing trained: the published detector, one scan | what does it already give? |
 | 1 | new linear head on frozen features, current scan | can a retrained head beat the detector at its own job? |
 | 2 | the scan five minutes earlier added, features averaged | does a second scan carry anything the first doesn't? |
@@ -66,7 +66,7 @@ format:
 ## Steps 1 and 2: the detection task
 
 | configuration | validation AP | test AP | at the locked threshold |
-|:--|:--:|:--:|:--|
+|:-----------------|:--------:|:------:|:-----------------|
 | original pretrained CNN | | 0.517 | 68 of 89 found, 276 false alarms |
 | step 1: current scan, linear head | 0.658 | 0.508 | 70 found, 571 false alarms |
 | step 2: two-scan mean, linear head | **0.675** | **0.548** | 69 found, 564 false alarms |
@@ -87,7 +87,7 @@ format:
 ## Step 0: the stakes
 
 | pre-onset AUC vs warned storms, 2014–2015 | +5 min | +10 min |
-|:--|:--:|:--:|
+|:-----------------------|:---------:|:---------:|
 | floor: detector on the newest scan | 0.731 | 0.726 |
 | ceiling: detector on the future scan | 0.769 | 0.797 |
 | ceiling minus floor, paired | +0.038 [+0.016, +0.063] | +0.071 [+0.048, +0.093] |
@@ -101,7 +101,7 @@ format:
 ## Steps 3 and 4: the onset task
 
 | pre-onset AUC vs warned storms | +5 min | paired vs floor | +10 min | paired vs floor |
-|:--|:--:|:--:|:--:|:--:|
+|:-------------|:---------:|:-----------:|:---------:|:-----------:|
 | floor | 0.731 | | 0.726 | |
 | 3: frozen CNN, two scans, new head | 0.699 | −0.032 [−0.045, −0.020] | 0.710 | −0.017 [−0.024, −0.010] |
 | 4: fine-tuned | 0.724 | −0.007 [−0.031, +0.015] | 0.728 | +0.001 [−0.016, +0.018] |

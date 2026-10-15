@@ -47,7 +47,16 @@ machine. The shared defaults are the `Config` dataclass in
 `src/tornado_onset/config.py`; the package holds the detector port, the data pipeline, the
 model, the training loop and the scorer.
 
-`docs/project.md` is the running log; `report.qmd` the writeup.
+`docs/project.md` is the running log; `report.qmd` the writeup and `slides.qmd` the deck:
+
+```sh
+uv run quarto render report.qmd --to pdf
+uv run quarto render report.qmd --to docx && uv run python tools/fix_docx_tables.py report.docx
+uv run quarto render slides.qmd --to pptx
+```
+
+The Word export needs the small fix script: Quarto centers every table cell in `.docx` output,
+and the script restores the column alignment the source asks for.
 
 ```sh
 uv run ruff check . && uv run ruff format --check . && uv run ty check
