@@ -10,7 +10,7 @@ dependencies = [
   "torch>=2.7",
   "numpy>=2.0",
   "pandas>=2.0",
-  "datasets>=3.0",
+  "pyarrow>=17",
   "h5py>=3.10",
   "huggingface_hub>=0.25",
 ]

@@ -10,7 +10,6 @@ import sys
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, Dataset
 
 from tornado_onset.config import DEFAULT_WEIGHTS, load_config
 
@@ -19,46 +18,56 @@ def _log() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s", datefmt="%H:%M:%S")
 
 
-class _LastScan(Dataset):
-    """The newest scan of each sample, as the published detector was scored."""
+def last_scans(paths: list[str], filenames: list[str]):
+    """Yield (x, coords) of the newest scan for the given filenames, in that order, reading
+    each shard once."""
+    from tornado_onset.data import read_shard, row_of, sample_from_row
 
-    def __init__(self, ds, indices: list[int]):
-        self.ds, self.indices = ds.with_format("numpy"), indices
-
-    def __len__(self) -> int:
-        return len(self.indices)
-
-    def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor]:
-        from tornado_onset.data import sample_from_row
-
-        s = sample_from_row(self.ds[self.indices[i]])
-        return torch.from_numpy(s.fields[-1]), torch.from_numpy(s.coords)
+    wanted = set(filenames)
+    found: dict[str, tuple[torch.Tensor, torch.Tensor]] = {}
+    for path in paths:
+        shard = read_shard(path)
+        for i, f in enumerate(shard["filename"]):
+            if f in wanted:
+                s = sample_from_row(row_of(shard, i))
+                found[f] = (torch.from_numpy(s.fields[-1]), torch.from_numpy(s.coords))
+    for f in filenames:
+        yield found[f]
 
 
 def verify_reference(
-    weights: str, reference_csv: str, batch_size: int, workers: int, years: list[int] | None = None
+    weights: str, reference_csv: str, batch_size: int, years: list[int] | None = None
 ) -> float:
     """Run the converted detector over the samples in a reference predictions CSV (read from
-    the Hub's test splits) and return the largest absolute logit difference."""
-    from tornado_onset.data import load_split
+    the Hub's test shards) and return the largest absolute logit difference."""
+    from tornado_onset.data import shard_paths
     from tornado_onset.metrics import roc_auc
     from tornado_onset.tornet import load_detector
 
     ref = pd.read_csv(reference_csv)
     if years:
         ref = ref[ref["year"].isin(years)].reset_index(drop=True)
-    ds = load_split("test", sorted(ref["year"].unique().tolist()))
-    where = {f: i for i, f in enumerate(ds["filename"])}
-    indices = [where[f] for f in ref["filename"]]
+    paths = shard_paths("test", sorted(ref["year"].unique().tolist()))
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = load_detector(weights, device)
     torch.backends.cudnn.allow_tf32 = False  # compare in true fp32
     torch.backends.cuda.matmul.allow_tf32 = False
-    loader = DataLoader(_LastScan(ds, indices), batch_size=batch_size, num_workers=workers)
-    logits = []
-    with torch.no_grad():
-        for x, c in loader:
-            logits.append(model(x.to(device), c.to(device)).squeeze(1).float().cpu().numpy())
+    logits, xs, cs = [], [], []
+
+    def flush() -> None:
+        if xs:
+            with torch.no_grad():
+                out = model(torch.stack(xs).to(device), torch.stack(cs).to(device))
+            logits.append(out.squeeze(1).float().cpu().numpy())
+            xs.clear()
+            cs.clear()
+
+    for x, c in last_scans(paths, ref["filename"].tolist()):
+        xs.append(x)
+        cs.append(c)
+        if len(xs) == batch_size:
+            flush()
+    flush()
     out = np.concatenate(logits)
     diff = np.abs(out - ref["logit"].to_numpy())
     logging.info(
@@ -97,7 +106,7 @@ def convert_weights(argv: list[str] | None = None) -> None:
         "wrote %s: %d tensors, %d parameters", a.out, len(sd), sum(v.numel() for v in sd.values())
     )
     if a.verify:
-        worst = verify_reference(a.out, a.verify, a.batch_size, a.workers, a.years)
+        worst = verify_reference(a.out, a.verify, a.batch_size, a.years)
         if worst > a.tolerance:
             logging.error("max logit difference %.3e exceeds %.1e", worst, a.tolerance)
             sys.exit(1)

@@ -1,6 +1,7 @@
 import numpy as np
+import pandas as pd
 import torch
-from datasets import Dataset
+from torch.utils.data import DataLoader
 
 from tornado_onset.data import (
     ALL_VARIABLES,
@@ -10,11 +11,12 @@ from tornado_onset.data import (
     channel_indices,
     collate,
     coordinates,
-    days_of,
     denormalize_fields,
-    load_split,
     normalize_fields,
+    read_shard,
+    row_of,
     sample_from_row,
+    shard_paths,
     split_by_day,
 )
 
@@ -42,27 +44,35 @@ def test_normalise_round_trip() -> None:
 
 
 def test_split_by_day_keeps_days_whole() -> None:
-    day = 86400
-    times = [[d * day + 60 * i] * 4 for d in (1, 1, 1, 2, 2, 3, 4, 4, 4, 4) for i in (0,)]
-    ds = Dataset.from_dict({"time": times, "filename": [str(i) for i in range(len(times))]})
-    idx = np.arange(len(ds))
-    tr, va = split_by_day(ds, idx, 0.5, seed=1)
-    assert len(tr) + len(va) == len(ds)
-    assert not set(days_of(ds, tr)) & set(days_of(ds, va))
-    assert len(set(days_of(ds, va))) == 2
+    df = pd.DataFrame(
+        {
+            "filename": [str(i) for i in range(14)],
+            "day": ["d1"] * 5 + ["d2"] * 3 + ["d3"] * 2 + ["d4"] * 4,
+        }
+    )
+    tr, va = split_by_day(df, 0.5, seed=1)
+    assert len(tr) + len(va) == 14 and not tr & va
+    days = df.set_index("filename")["day"]
+    assert not set(days.loc[list(tr)]) & set(days.loc[list(va)])
+    assert len(set(days.loc[list(va)])) == 2
 
 
-def test_hub_rows_and_dataset(hub_files: dict) -> None:
-    ds = load_split("test", [], data_files=hub_files)
-    assert len(ds) == 256 and ds.features["VEL"].shape == (4, 120, 240, 2)
-    s = sample_from_row(ds.with_format("numpy")[0])
+def test_hub_shard_rows_and_dataset(hub_files: dict) -> None:
+    paths = shard_paths("test", [], patterns=hub_files["test"])
+    assert len(paths) == 1
+    shard = read_shard(paths[0])
+    assert len(shard["filename"]) == 256 and shard["VEL"].shape == (256, 4, 120, 240, 2)
+    assert shard["VEL"].dtype == np.float16 and shard["range_folded_mask"].dtype == np.uint8
+    s = sample_from_row(row_of(shard, 0))
     assert s.fields.shape == (4, N_INPUT_CHANNELS, 120, 240)
     assert s.coords.shape == (2, 120, 240) and s.labels.shape == (4,)
     assert np.isfinite(s.fields).all() and s.filename.startswith("test/2013/")
-    od = OnsetDataset(ds, n_in=2, horizons=2, indices=[0, 1])
-    b = collate([od[0], od[1]])
-    assert b["x"].shape == (2, 2, N_INPUT_CHANNELS, 120, 240)
-    assert b["future"].shape == (2, 2, N_INPUT_CHANNELS, 120, 240)
-    assert b["minutes"].shape == (2, 2) and torch.all(b["minutes"] > 0)
-    assert torch.all(b["dt_in"] > 0)
-    assert b["meta"][0]["filename"] == ds[0]["filename"]
+    keep = set(shard["filename"][:6])
+    ds = OnsetDataset(paths, n_in=2, horizons=2, keep=keep, shuffle=True, seed=0)
+    items = list(DataLoader(ds, batch_size=4, num_workers=2, collate_fn=collate))
+    assert sum(len(b["meta"]) for b in items) == 6
+    b = items[0]
+    assert b["x"].shape[1:] == (2, N_INPUT_CHANNELS, 120, 240)
+    assert b["future"].shape[1:] == (2, N_INPUT_CHANNELS, 120, 240)
+    assert b["minutes"].shape[1] == 2 and torch.all(b["minutes"] > 0) and torch.all(b["dt_in"] > 0)
+    assert {m["filename"] for it in items for m in it["meta"]} == keep

@@ -19,10 +19,13 @@ oldest scans; targets are the two newest, at about +5 and +10 minutes from the l
 
 The data comes from the Hub dataset `jakeryderv/tornet` (Parquet, every netCDF field, one
 config per year plus a `catalog` config of the scalar fields; published 2026-10-14 from the
-original Zenodo release, CC BY 4.0). `load_split` fetches the per-year configs of
-`train_years` / `test_years`, or explicit `data_files` patterns; `datasets` caches and
-memory-maps the shards, and the dataset wrapper builds the detector's tensors per row. No local
-netCDF, no `TORNET_ROOT`.
+original Zenodo release, CC BY 4.0). `shard_paths` fetches the shards of `train_years` /
+`test_years`, or explicit `data_files` patterns, into the Hub file cache, and `OnsetDataset`
+streams them with pyarrow one shard at a time (a shard is 256 samples, 170 MB compressed,
+0.8 GB decoded), shuffling shard order per epoch and rows within a shard; DataLoader workers
+take disjoint shards. The `datasets` library was tried first and dropped: it materialises an
+uncompressed Arrow copy, about 3 MB per sample, 75 GB for 2015 alone. No local netCDF, no
+`TORNET_ROOT`.
 
 Partitions are the authors' `train` and `test` splits. Validation is held out from the training
 partition by whole days, never by random sample, because consecutive scans of one storm are near

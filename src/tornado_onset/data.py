@@ -3,8 +3,12 @@
 The dataset `jakeryderv/tornet` holds every TorNet v1.1 sample as Parquet: four radar scans
 about five minutes apart, each (azimuth=120, range=240, tilt=2) for six products in physical
 units (NaN where empty), the range-folded mask, a label per scan, scan times and event metadata.
-One config per year (`"2015"` has `train` and `test` splits), or explicit `data_files` patterns
-for any subset. Shards are cached and memory-mapped by `datasets`, so a year downloads once.
+Shards are fetched once into the Hub file cache (`snapshot_download`, 256 samples and about
+170 MB each) and read directly with pyarrow, one shard at a time: a shard decompresses to about
+0.8 GB, so a worker holds one and `datasets`' uncompressed Arrow cache (3 MB per sample) is
+never built. Training streams shards in random order and shuffles within each; a worker's
+batches draw from the shards it holds, so mixing is at the shard level (one shard is a few
+hours of one year). Row selection (day-based validation, a subset) is by filename.
 
 The published detector consumes, per scan, the six products normalised to roughly [-1, 1] with
 empty gates set to ``BACKGROUND``, the two range-folded channels appended (14 channels), and two
@@ -13,12 +17,16 @@ CoordConv coordinate channels (range and inverse range). Everything here is chan
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import pandas as pd
+import pyarrow as pa
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import IterableDataset, get_worker_info
 
 HF_DATASET = "jakeryderv/tornet"
 ALL_VARIABLES = ["DBZ", "VEL", "KDP", "RHOHV", "ZDR", "WIDTH"]
@@ -143,46 +151,89 @@ def sample_weight(category: str, ef_number: int, w: dict[str, float]) -> float:
     return float(w.get("w2", 2.0))
 
 
-def load_split(
+ARRAY_FIELDS = [*ALL_VARIABLES, "range_folded_mask"]
+SHAPE = (4, 120, 240, 2)
+
+
+def shard_paths(
     partition: str,
     years: list[int],
     dataset: str = HF_DATASET,
-    data_files: dict[str, Any] | None = None,
-):
-    """A `datasets.Dataset` for one partition: the per-year configs of `years`, or, when
-    `data_files` is given, those explicit patterns (a fold, a shard for a test)."""
-    from datasets import concatenate_datasets, load_dataset
+    patterns: list[str] | None = None,
+) -> list[str]:
+    """Local paths of the Parquet shards of one partition: the given years, or explicit
+    `patterns` (Hub paths with globs, e.g. ["data/train/2013/part-00000-*.parquet"]). Fetched
+    into the Hub cache on first use, sorted."""
+    import glob
 
-    if data_files:
-        return load_dataset(dataset, data_files=data_files, split=partition)
-    parts = [load_dataset(dataset, str(y), split=partition) for y in years]
-    return parts[0] if len(parts) == 1 else concatenate_datasets(parts)
+    from huggingface_hub import snapshot_download
 
-
-def days_of(ds, indices: np.ndarray | None = None) -> np.ndarray:
-    """The UTC date of each sample's first scan, as 'YYYY-MM-DD' strings."""
-    times = np.asarray([t[0] for t in ds["time"]], dtype="int64")
-    if indices is not None:
-        times = times[indices]
-    return np.datetime_as_string(times.astype("datetime64[s]"), unit="D")
+    allow = patterns or [f"data/{partition}/{y}/*.parquet" for y in years]
+    root = snapshot_download(dataset, repo_type="dataset", allow_patterns=allow)
+    paths = sorted(p for pat in allow for p in glob.glob(os.path.join(root, pat)))
+    if not paths:
+        raise FileNotFoundError(f"no shards for {partition} {years or patterns} in {dataset}")
+    return paths
 
 
-def split_by_day(
-    ds, indices: np.ndarray, val_fraction: float, seed: int
-) -> tuple[np.ndarray, np.ndarray]:
+def metadata(partition: str, years: list[int], dataset: str = HF_DATASET) -> pd.DataFrame:
+    """The scalar fields of every sample of the partition-years (from the small per-year
+    metadata files), with a `day` column (UTC date of the first scan)."""
+    from huggingface_hub import snapshot_download
+
+    allow = [f"metadata/{partition}-{y}.parquet" for y in years]
+    root = snapshot_download(dataset, repo_type="dataset", allow_patterns=allow)
+    df = pd.concat([pd.read_parquet(os.path.join(root, a)) for a in allow], ignore_index=True)
+    first = np.array([t[0] for t in df["time"]], dtype="int64")
+    df["day"] = np.datetime_as_string(first.astype("datetime64[s]"), unit="D")
+    return df
+
+
+def split_by_day(df: pd.DataFrame, val_fraction: float, seed: int) -> tuple[set[str], set[str]]:
     """Hold out whole days for validation so consecutive scans of one storm never straddle the
-    split. Returns (train_indices, val_indices) into `ds`."""
-    days = days_of(ds, indices)
-    unique = np.array(sorted(set(days)))
+    split. Returns (train filenames, val filenames)."""
+    days = np.array(sorted(df["day"].unique()))
     rng = np.random.default_rng(seed)
-    rng.shuffle(unique)
-    val_days = set(unique[: round(len(unique) * val_fraction)])
-    is_val = np.array([d in val_days for d in days])
-    return indices[~is_val], indices[is_val]
+    rng.shuffle(days)
+    val_days = set(days[: round(len(days) * val_fraction)])
+    is_val = df["day"].isin(val_days).to_numpy()
+    return set(df["filename"][~is_val]), set(df["filename"][is_val])
 
 
-class OnsetDataset(Dataset):
-    """The oldest `n_in` scans in, the next `horizons` scans out, over a Hub dataset.
+def _flat(column) -> np.ndarray:
+    """A nested list<...<halffloat|uint8>> Arrow column -> (N, *SHAPE) numpy."""
+    arr = column.combine_chunks() if isinstance(column, pa.ChunkedArray) else column
+    n = len(arr)
+    if isinstance(arr, pa.ExtensionArray):  # `datasets` registered its Array4D type
+        arr = arr.storage
+    while isinstance(arr, pa.ListArray | pa.FixedSizeListArray):
+        arr = arr.flatten()
+    return arr.to_numpy(zero_copy_only=False).reshape(n, *SHAPE)
+
+
+def read_shard(path: str, columns: list[str] | None = None) -> dict[str, Any]:
+    """One shard -> {"filename": [...], scalar columns: lists, array columns: (N, *SHAPE)}."""
+    import pyarrow.parquet as pq
+
+    table = pq.read_table(path, columns=columns)
+    out: dict[str, Any] = {}
+    for name in table.column_names:
+        col = table.column(name)
+        if name in ARRAY_FIELDS:
+            out[name] = _flat(col)
+        else:
+            out[name] = col.to_pylist()
+    return out
+
+
+def row_of(shard: dict[str, Any], i: int) -> dict[str, Any]:
+    return {k: v[i] for k, v in shard.items()}
+
+
+class OnsetDataset(IterableDataset):
+    """Samples streamed from Parquet shards: the oldest `n_in` scans in, the next `horizons`
+    out. With `shuffle`, shard order is reshuffled every epoch (`set_epoch`) and rows within a
+    shard are shuffled; DataLoader workers take disjoint shards.
 
     Per item:
         x            (n_in, 14, A, R)      input scans
@@ -198,45 +249,70 @@ class OnsetDataset(Dataset):
 
     def __init__(
         self,
-        ds,
+        paths: list[str],
         n_in: int = 2,
         horizons: int = 2,
         weights: dict[str, float] | None = None,
-        indices: np.ndarray | list[int] | None = None,
+        keep: set[str] | None = None,
+        shuffle: bool = False,
+        seed: int = 0,
     ):
         if n_in + horizons > 4:
             raise ValueError("a TorNet sample has four scans")
-        self.ds = ds.with_format("numpy")
-        self.indices = np.arange(len(ds)) if indices is None else np.asarray(indices)
+        self.paths = list(paths)
         self.n_in, self.horizons = n_in, horizons
         self.weights = weights or {}
+        self.keep = keep
+        self.shuffle, self.seed, self.epoch = shuffle, seed, 0
 
-    def __len__(self) -> int:
-        return len(self.indices)
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
 
-    def __getitem__(self, idx: int) -> dict[str, Any]:
+    def _my_paths(self) -> list[str]:
+        paths = self.paths
+        if self.shuffle:
+            order = np.random.default_rng(self.seed + self.epoch).permutation(len(paths))
+            paths = [paths[i] for i in order]
+        info = get_worker_info()
+        if info is not None:
+            paths = paths[info.id :: info.num_workers]
+        return paths
+
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        info = get_worker_info()
+        rng = np.random.default_rng(self.seed + 1000 * self.epoch + (info.id if info else 0))
         n, h = self.n_in, self.horizons
-        s = sample_from_row(self.ds[int(self.indices[idx])])
-        t = s.times
-        return {
-            "x": torch.from_numpy(s.fields[:n]),
-            "coords": torch.from_numpy(s.coords),
-            "future": torch.from_numpy(s.fields[n : n + h]),
-            "labels": torch.from_numpy(s.labels[n : n + h]),
-            "frame_labels": torch.from_numpy(s.labels[: n + h]),
-            "minutes": torch.from_numpy(((t[n : n + h] - t[n - 1]) / 60).astype(np.float32)),
-            "dt_in": torch.tensor((t[n - 1] - t[max(n - 2, 0)]) / 60, dtype=torch.float32),
-            "weight": torch.tensor(sample_weight(s.category, s.ef_number, self.weights)),
-            "meta": {
-                "filename": s.filename,
-                "category": s.category,
-                "ef_number": s.ef_number,
-                "event_id": s.event_id,
-                "time": int(t[n - 1]),
-                "times": t[n : n + h].tolist(),
-                "rng_center_km": s.rng_center_km,
-            },
-        }
+        for path in self._my_paths():
+            shard = read_shard(path)
+            idx = [
+                i for i, f in enumerate(shard["filename"]) if self.keep is None or f in self.keep
+            ]
+            if self.shuffle:
+                rng.shuffle(idx)
+            for i in idx:
+                s = sample_from_row(row_of(shard, i))
+                t = s.times
+                yield {
+                    "x": torch.from_numpy(s.fields[:n]),
+                    "coords": torch.from_numpy(s.coords),
+                    "future": torch.from_numpy(s.fields[n : n + h]),
+                    "labels": torch.from_numpy(s.labels[n : n + h]),
+                    "frame_labels": torch.from_numpy(s.labels[: n + h]),
+                    "minutes": torch.from_numpy(
+                        ((t[n : n + h] - t[n - 1]) / 60).astype(np.float32)
+                    ),
+                    "dt_in": torch.tensor((t[n - 1] - t[max(n - 2, 0)]) / 60, dtype=torch.float32),
+                    "weight": torch.tensor(sample_weight(s.category, s.ef_number, self.weights)),
+                    "meta": {
+                        "filename": s.filename,
+                        "category": s.category,
+                        "ef_number": s.ef_number,
+                        "event_id": s.event_id,
+                        "time": int(t[n - 1]),
+                        "times": t[n : n + h].tolist(),
+                        "rng_center_km": s.rng_center_km,
+                    },
+                }
 
 
 def collate(batch: list[dict[str, Any]]) -> dict[str, Any]:

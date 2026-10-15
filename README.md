@@ -53,7 +53,8 @@ the JSON or on the command line with `--set key=value`.
 ## Data
 
 TorNet v1.1 from the Hub dataset [`jakeryderv/tornet`](https://huggingface.co/datasets/jakeryderv/tornet):
-one config per year with the authors' `train` and `test` splits, cached and memory-mapped by
-`datasets` on first use (2015 is about 12 GB). `train_years` / `test_years` pick years;
-`data_files` in a config takes explicit shard patterns instead, for a fold or a subset.
-Validation is held out from the training partition by day. The first slice uses 2015 only.
+Parquet shards per partition and year, fetched into the Hub file cache on first use (2015 is
+about 12 GB) and streamed one shard at a time with pyarrow, so no uncompressed Arrow cache is
+ever built. `train_years` / `test_years` pick years; `data_files` in a config takes explicit
+shard patterns instead, for a fold or a subset. Validation is held out from the training
+partition by day. The first slice uses 2015 only.

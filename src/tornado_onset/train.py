@@ -19,7 +19,14 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from tornado_onset.config import Config, resolve_weights
-from tornado_onset.data import OnsetDataset, collate, load_split, split_by_day
+from tornado_onset.data import (
+    OnsetDataset,
+    collate,
+    metadata,
+    read_shard,
+    shard_paths,
+    split_by_day,
+)
 from tornado_onset.metrics import roc_auc
 from tornado_onset.model import Losses, OnsetModel, build_model
 from tornado_onset.score import evaluate, headline
@@ -27,32 +34,39 @@ from tornado_onset.tornet import load_detector
 
 
 def make_loaders(cfg: Config) -> tuple[DataLoader, DataLoader | None, dict[str, int]]:
-    ds = load_split("train", cfg.train_years, cfg.dataset, cfg.data_files)
-    indices = np.arange(len(ds))
+    patterns = (cfg.data_files or {}).get("train")
+    paths = shard_paths("train", cfg.train_years, cfg.dataset, patterns)
+    if patterns:  # scalar fields straight from the shards (a test subset, a fold by pattern)
+        frames = [pd.DataFrame(read_shard(p, ["filename", "time"])) for p in paths]
+        df = pd.concat(frames, ignore_index=True)
+        first = np.array([t[0] for t in df["time"]], dtype="int64")
+        df["day"] = np.datetime_as_string(first.astype("datetime64[s]"), unit="D")
+    else:
+        df = metadata("train", cfg.train_years, cfg.dataset)
     if cfg.max_files:
-        indices = np.sort(np.random.default_rng(cfg.seed).permutation(len(ds))[: cfg.max_files])
-    train_idx, val_idx = split_by_day(ds, indices, cfg.val_fraction, cfg.seed)
+        df = df.sample(n=min(cfg.max_files, len(df)), random_state=cfg.seed)
+    train_keep, val_keep = split_by_day(df, cfg.val_fraction, cfg.seed)
 
-    def loader(idx: np.ndarray, shuffle: bool) -> DataLoader:
+    def loader(keep: set[str], shuffle: bool) -> DataLoader:
         return DataLoader(
-            OnsetDataset(ds, cfg.n_in, cfg.horizons, cfg.sample_weights, idx),
+            OnsetDataset(
+                paths, cfg.n_in, cfg.horizons, cfg.sample_weights, keep, shuffle, cfg.seed
+            ),
             batch_size=cfg.batch_size,
-            shuffle=shuffle,
             num_workers=cfg.workers,
             collate_fn=collate,
             pin_memory=torch.cuda.is_available(),
-            persistent_workers=cfg.workers > 0,
+            persistent_workers=False,
         )
 
-    from tornado_onset.data import days_of
-
+    days = df.set_index("filename")["day"]
     counts = {
-        "train_files": len(train_idx),
-        "train_days": len(set(days_of(ds, train_idx))),
-        "val_files": len(val_idx),
-        "val_days": len(set(days_of(ds, val_idx))) if len(val_idx) else 0,
+        "train_files": len(train_keep),
+        "train_days": int(days.loc[list(train_keep)].nunique()) if train_keep else 0,
+        "val_files": len(val_keep),
+        "val_days": int(days.loc[list(val_keep)].nunique()) if val_keep else 0,
     }
-    return loader(train_idx, True), loader(val_idx, False) if len(val_idx) else None, counts
+    return loader(train_keep, True), loader(val_keep, False) if val_keep else None, counts
 
 
 def run_epoch(
@@ -126,6 +140,7 @@ def fit(
     best, since_best = -np.inf, 0
     for epoch in range(1, cfg.epochs + 1):
         t0 = time.time()
+        train_loader.dataset.set_epoch(epoch)  # reshuffle shard order
         row: dict[str, Any] = {"epoch": epoch}
         row.update(
             {

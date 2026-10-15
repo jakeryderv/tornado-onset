@@ -22,7 +22,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from tornado_onset.config import Config, resolve_weights
-from tornado_onset.data import OnsetDataset, collate, load_split
+from tornado_onset.data import OnsetDataset, collate, shard_paths
 from tornado_onset.metrics import paired_difference, views
 from tornado_onset.model import OnsetModel
 from tornado_onset.tornet import TorNetDetector, load_detector
@@ -40,11 +40,11 @@ def pattern_flags(frame_labels: np.ndarray, n_in: int) -> tuple[np.ndarray, np.n
 
 
 def test_loader(cfg: Config) -> DataLoader:
-    ds = load_split("test", cfg.test_years, cfg.dataset, cfg.data_files)
+    patterns = (cfg.data_files or {}).get("test")
+    paths = shard_paths("test", cfg.test_years, cfg.dataset, patterns)
     return DataLoader(
-        OnsetDataset(ds, cfg.n_in, cfg.horizons, cfg.sample_weights),
+        OnsetDataset(paths, cfg.n_in, cfg.horizons, cfg.sample_weights),
         batch_size=cfg.batch_size,
-        shuffle=False,
         num_workers=cfg.workers,
         collate_fn=collate,
         pin_memory=torch.cuda.is_available(),
