@@ -176,8 +176,8 @@ harder task: the detector's own readout of its features is as good as those feat
 
 Step 4 recovers the floor and no more. Letting the CNN adapt lifts the head by 0.025 at +5 and
 0.018 at +10 over the frozen version, to a tie with the detector at both horizons, with paired
-intervals centered on zero. Validation was still rising when the five-epoch cap hit
-(@fig-training), while the frozen head peaked at epoch two, so a longer fine-tune might take a
+intervals centered on zero. Validation was still rising when the five-epoch cap hit,
+while the frozen head peaked at epoch two, so a longer fine-tune might take a
 little more; the ceiling bounds what "more" can be at 0.045 and 0.07. Per year it's the same
 picture with the usual noise: the fine-tuned head ties the floor in 2015 and trails it in 2014.
 
@@ -186,9 +186,6 @@ carry about what the latest scan already carries. The second scan's gain from st
 the detection task and does not survive the move to "will it appear". The honest summary of a
 forecaster built this way is that it reproduces the detector carried forward, which is the
 tool a forecaster already has.
-
-![Validation AUC and loss per epoch for steps 3 and 4; the star marks the checkpoint
-kept.](figures/training.png){#fig-training width=58%}
 
 # What's next
 
