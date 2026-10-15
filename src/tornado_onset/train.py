@@ -4,6 +4,7 @@ checkpoint is kept and scored."""
 
 from __future__ import annotations
 
+import dataclasses
 import datetime
 import json
 import logging
@@ -18,31 +19,16 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader
 
-from tornado_onset.config import Config, resolve_weights
-from tornado_onset.data import (
-    OnsetDataset,
-    collate,
-    metadata,
-    read_shard,
-    shard_paths,
-    split_by_day,
-)
-from tornado_onset.metrics import roc_auc
-from tornado_onset.model import Losses, OnsetModel, build_model
-from tornado_onset.score import evaluate, headline
+from tornado_onset.config import Config
+from tornado_onset.data import OnsetDataset, collate, metadata, shard_paths, split_by_day
+from tornado_onset.model import OnsetModel, build_model, onset_loss
+from tornado_onset.score import evaluate, headline, roc_auc
 from tornado_onset.tornet import load_detector
 
 
 def make_loaders(cfg: Config) -> tuple[DataLoader, DataLoader | None, dict[str, int]]:
-    patterns = (cfg.data_files or {}).get("train")
-    paths = shard_paths("train", cfg.train_years, cfg.dataset, patterns)
-    if patterns:  # scalar fields straight from the shards (a test subset, a fold by pattern)
-        frames = [pd.DataFrame(read_shard(p, ["filename", "time"])) for p in paths]
-        df = pd.concat(frames, ignore_index=True)
-        first = np.array([t[0] for t in df["time"]], dtype="int64")
-        df["day"] = np.datetime_as_string(first.astype("datetime64[s]"), unit="D")
-    else:
-        df = metadata("train", cfg.train_years, cfg.dataset)
+    paths = shard_paths("train", cfg.train_years)
+    df = metadata("train", cfg.train_years)
     if cfg.max_files:
         df = df.sample(n=min(cfg.max_files, len(df)), random_state=cfg.seed)
     train_keep, val_keep = split_by_day(df, cfg.val_fraction, cfg.seed)
@@ -77,45 +63,41 @@ def make_loaders(cfg: Config) -> tuple[DataLoader, DataLoader | None, dict[str, 
 
 
 def run_epoch(
+    cfg: Config,
     model: OnsetModel,
     loader: DataLoader,
-    losses: Losses,
     device: torch.device,
     optimizer: torch.optim.Optimizer | None = None,
     scaler: torch.amp.GradScaler | None = None,
 ) -> dict[str, float]:
     training = optimizer is not None
-    cfg = losses.cfg
     model.train(training)
-    sums: dict[str, float] = {}
-    n = 0
+    loss_sum, n = 0.0, 0
     logits_all, labels_all = [], []
     for batch in loader:
         x = batch["x"].to(device, non_blocking=True)
         coords = batch["coords"].to(device, non_blocking=True)
+        labels = batch["labels"].to(device)
         with (
             torch.set_grad_enabled(training),
             torch.autocast(device.type, enabled=cfg.amp and device.type == "cuda"),
         ):
-            out = model(x, coords, batch["minutes"].to(device), batch["dt_in"].to(device))
-            out = {k: v.float() for k, v in out.items()}
-            total, parts = losses(out, batch)
+            logits = model(x, coords, batch["minutes"].to(device), batch["dt_in"].to(device))
+            loss = onset_loss(logits.float(), labels, batch["weight"].to(device))
         if training:
             assert optimizer is not None and scaler is not None
             optimizer.zero_grad(set_to_none=True)
-            scaler.scale(total).backward()
+            scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             if cfg.grad_clip:
                 nn.utils.clip_grad_norm_(model.parameters(), cfg.grad_clip)
             scaler.step(optimizer)
             scaler.update()
-        bs = x.shape[0]
-        for k, v in {"loss": total.item(), **parts}.items():
-            sums[k] = sums.get(k, 0.0) + v * bs
-        n += bs
-        logits_all.append(out["logits"].detach().cpu().numpy())
+        loss_sum += loss.item() * x.shape[0]
+        n += x.shape[0]
+        logits_all.append(logits.detach().float().cpu().numpy())
         labels_all.append(batch["labels"].numpy())
-    metrics = {k: v / max(n, 1) for k, v in sums.items()}
+    metrics = {"loss": loss_sum / max(n, 1)}
     logits, labels = np.concatenate(logits_all), np.concatenate(labels_all)
     for h in range(labels.shape[1]):
         metrics[f"AUC_h{h}"] = roc_auc(labels[:, h].astype(bool), logits[:, h])
@@ -123,7 +105,7 @@ def run_epoch(
 
 
 def fit(
-    cfg: Config, model: OnsetModel, losses: Losses, device: torch.device, expdir: str
+    cfg: Config, model: OnsetModel, device: torch.device, expdir: str
 ) -> tuple[list[dict[str, Any]], str, str]:
     """Train; returns (history, best checkpoint path, last checkpoint path)."""
     train_loader, val_loader, counts = make_loaders(cfg)
@@ -152,13 +134,11 @@ def fit(
         row.update(
             {
                 f"train_{k}": v
-                for k, v in run_epoch(
-                    model, train_loader, losses, device, optimizer, scaler
-                ).items()
+                for k, v in run_epoch(cfg, model, train_loader, device, optimizer, scaler).items()
             }
         )
         if val_loader is not None:
-            va = run_epoch(model, val_loader, losses, device)
+            va = run_epoch(cfg, model, val_loader, device)
             row.update({f"val_{k}": v for k, v in va.items()})
             score = float(np.nanmean([v for k, v in va.items() if k.startswith("AUC_h")]))
             if score > best:
@@ -212,17 +192,21 @@ def run(cfg: Config) -> dict[str, Any]:
     np.random.seed(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     expdir = make_expdir(cfg)
-    logging.info("device %s; run dir %s; config %s", device, expdir, cfg.to_dict())
+    logging.info("device %s; run dir %s; config %s", device, expdir, dataclasses.asdict(cfg))
     model = build_model(cfg).to(device)
-    judge = load_detector(resolve_weights(cfg.weights), device)
+    judge = load_detector(cfg.weights, device)
     n_params = sum(p.numel() for p in model.parameters())
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     logging.info("model: %s params, %s trainable", f"{n_params:,}", f"{n_train:,}")
     with open(os.path.join(expdir, "params.json"), "w") as f:
-        json.dump({"config": cfg.to_dict(), "params": n_params, "trainable": n_train}, f, indent=2)
-    history, best_path, last_path = fit(cfg, model, Losses(cfg, device), device, expdir)
+        json.dump(
+            {"config": dataclasses.asdict(cfg), "params": n_params, "trainable": n_train},
+            f,
+            indent=2,
+        )
+    history, best_path, last_path = fit(cfg, model, device, expdir)
     model.load_state_dict(torch.load(best_path, map_location=device))
-    summary = evaluate(cfg, model, device, os.path.join(expdir, "scores"), judge)
+    summary = evaluate(cfg, model, judge, device, os.path.join(expdir, "scores"))
     commit, dirty = git_revision()
     results: dict[str, Any] = {
         "exp_name": cfg.exp_name,

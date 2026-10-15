@@ -42,10 +42,11 @@ on one year.
 ## Model
 
 The published TorNet detector supplies both the starting point and the judge. Its Keras
-checkpoint was converted once to a torch state dict (`onset-convert-weights`, no Keras in the
-dependency tree; the conversion reproduces the published logits to 2e-5) and published as
-`jakeryderv/tornet-detector-torch` (MIT, as the original); `resolve_weights` fetches it unless
-a local conversion exists.
+checkpoint was converted once to a torch state dict (h5py only, no Keras; the conversion
+reproduces the published logits to 2e-5, see the model card) and published as
+`jakeryderv/tornet-detector-torch` (MIT, as the original). The conversion code lived in this
+repo until the trim of 2026-10-14 and is in the git history; `tornet.resolve_weights` fetches
+the published state dict unless a local `weights/tornet_detector_v1.pt` exists.
 
 ```
 two scans (14 channels each: 12 normalised radar channels + 2 range-folded)
@@ -92,10 +93,7 @@ Per horizon, four probabilities per test sample: head, judge on persistence, jud
 judge on truth. Each is written as a predictions CSV with the label pattern (e.g. `0011`) and
 `pre_onset` / `ongoing` flags. `summary.json` holds AUC and AUCPR per view (NC, RC, WC) with
 bootstrap intervals, for all cases and for the pre-onset subset, paired bootstrap differences
-against persistence over the same files, and the drawing's pixel error per product against
-truth and against persistence. `maps_h<k>.npz` keeps every 8×15 likelihood map; `features.npz`
-keeps the head logits and the max- and mean-pooled bottleneck features per sample, so a later
-model can take them as inputs.
+against persistence over the same files.
 
 Reading a run: the head sits somewhere between the floor and the ceiling. The floor is what the
 published detector already gives you; the ceiling is what it would give with the true future
@@ -103,9 +101,8 @@ scan. The paired delta vs persistence with its interval is the result.
 
 ## Runs
 
-The final set: one baseline and three experiments, one seed each, all on 2015, defined in
-`tornado_onset.config.EXPERIMENTS` and run by `onset-train all` (which ends with the
-`onset-summary` table).
+The final set: one baseline and three experiments, one seed each, all on 2015, defined at the
+top of `run.py` and run by `uv run run.py all` (which ends with the summary table).
 
 | experiment | what it asks |
 |---|---|
@@ -135,21 +132,22 @@ stopping now addresses.
 - **The head beats the floor, and only just.** +0.030 / +0.013 over the published detector on
   the newest scan, intervals touching zero; the ceiling stays 0.055 / 0.074 above the floor.
   Fine-tuning on one year buys a small, real-looking gain that one test year cannot resolve.
-- **One seed each.** The next runs are more seeds of `y2015`, and `encoder_lr_scale` 0.03
-  against the overfitting, 15 minutes each.
+- **One seed each.** Decided 2026-10-14: no more seeds and no learning-rate sweep; the final
+  set is the baseline plus the three experiments in `run.py`, one run each.
 
 ## Open questions
 
-- Seed variance on 2015: is 0.739 a number or a draw? Three seeds and `onset-summary` answer it.
+- Seed variance on 2015: is 0.739 a number or a draw? Out of scope for this round (one seed per
+  run); differences within about ±0.03 are read as ties.
 - Overfitting on one year: lower encoder learning rate, or more years once the data comes from
   the Hub.
-- More signal than two radar chips hold: environmental fields (HRRR) joined on `features.npz`,
-  and longer scan histories.
+- More signal than two radar chips hold: environmental fields (HRRR) joined on the per-sample
+  predictions, and longer scan histories.
 
 ## Conventions
 
-- Torch only; uv, ruff, ty, pytest. `uv run pytest` includes two tiny runs on 24 samples of one
-  Hub shard (skipped offline).
-- Runs land under `$EXP_DIR` (default `experiments/`, git-ignored). Experiments are the dict in
-  `config.py`; any `Config` key can be changed with `--set key=value`.
-- `onset-score <checkpoint>` rescores any checkpoint with the config it was trained with.
+- Torch only; uv, ruff, ty. No tests and no CLI since the trim of 2026-10-14: `run.py` at the
+  root is the entry point, the package under `src/` holds the importable parts (detector port,
+  data, model, training loop, scorer), about 1,100 lines in all. `--smoke` runs a short pass.
+- Runs land under `experiments/` (git-ignored). The shared defaults are the `Config` dataclass
+  in `config.py`; the four experiments are a few overrides each in `run.py`.

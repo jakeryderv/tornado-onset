@@ -42,11 +42,6 @@ BACKGROUND = -3.0  # the detector's fill value for empty gates, in normalised un
 N_SWEEPS = 2
 N_RADAR_CHANNELS = N_SWEEPS * len(ALL_VARIABLES)  # 12
 N_INPUT_CHANNELS = N_RADAR_CHANNELS + N_SWEEPS  # + 2 range-folded channels = 14
-CHANNEL_INDEX = {v: [N_SWEEPS * i, N_SWEEPS * i + 1] for i, v in enumerate(ALL_VARIABLES)}
-
-
-def channel_indices(products: list[str]) -> list[int]:
-    return [i for p in products for i in CHANNEL_INDEX[p]]
 
 
 def channel_scale(name: str) -> tuple[float, float]:
@@ -64,16 +59,6 @@ def normalize_fields(frames: dict[str, np.ndarray], background: float = BACKGROU
         x = (frames[v].astype(np.float32) - offset) / scale
         out.append(np.where(np.isnan(x), background, x))
     return np.concatenate(out, axis=-1)
-
-
-def denormalize_fields(fields: np.ndarray) -> dict[str, np.ndarray]:
-    """Inverse of `normalize_fields` (channels last) for viewing in physical units; background
-    gates stay at the fill value's physical equivalent."""
-    out = {}
-    for i, v in enumerate(ALL_VARIABLES):
-        offset, scale = channel_scale(v)
-        out[v] = fields[..., N_SWEEPS * i : N_SWEEPS * (i + 1)] * scale + offset
-    return out
 
 
 def coordinates(
@@ -108,9 +93,6 @@ class Sample:
     category: str
     ef_number: int
     event_id: int
-    tornado_start: int
-    tornado_end: int
-    rng_center_km: float
 
 
 def sample_from_row(row: dict[str, Any]) -> Sample:
@@ -132,9 +114,6 @@ def sample_from_row(row: dict[str, Any]) -> Sample:
         category=str(row["category"]),
         ef_number=ef,
         event_id=int(row["event_id"]),
-        tornado_start=int(row["tornado_start_time"]),
-        tornado_end=int(row["tornado_end_time"]),
-        rng_center_km=(rng[0] + rng[1]) / 2e3,
     )
 
 
@@ -155,34 +134,28 @@ ARRAY_FIELDS = [*ALL_VARIABLES, "range_folded_mask"]
 SHAPE = (4, 120, 240, 2)
 
 
-def shard_paths(
-    partition: str,
-    years: list[int],
-    dataset: str = HF_DATASET,
-    patterns: list[str] | None = None,
-) -> list[str]:
-    """Local paths of the Parquet shards of one partition: the given years, or explicit
-    `patterns` (Hub paths with globs, e.g. ["data/train/2013/part-00000-*.parquet"]). Fetched
-    into the Hub cache on first use, sorted."""
+def shard_paths(partition: str, years: list[int]) -> list[str]:
+    """Local paths of the Parquet shards of one partition and the given years, fetched into the
+    Hub cache on first use, sorted."""
     import glob
 
     from huggingface_hub import snapshot_download
 
-    allow = patterns or [f"data/{partition}/{y}/*.parquet" for y in years]
-    root = snapshot_download(dataset, repo_type="dataset", allow_patterns=allow)
+    allow = [f"data/{partition}/{y}/*.parquet" for y in years]
+    root = snapshot_download(HF_DATASET, repo_type="dataset", allow_patterns=allow)
     paths = sorted(p for pat in allow for p in glob.glob(os.path.join(root, pat)))
     if not paths:
-        raise FileNotFoundError(f"no shards for {partition} {years or patterns} in {dataset}")
+        raise FileNotFoundError(f"no shards for {partition} {years} in {HF_DATASET}")
     return paths
 
 
-def metadata(partition: str, years: list[int], dataset: str = HF_DATASET) -> pd.DataFrame:
+def metadata(partition: str, years: list[int]) -> pd.DataFrame:
     """The scalar fields of every sample of the partition-years (from the small per-year
     metadata files), with a `day` column (UTC date of the first scan)."""
     from huggingface_hub import snapshot_download
 
     allow = [f"metadata/{partition}-{y}.parquet" for y in years]
-    root = snapshot_download(dataset, repo_type="dataset", allow_patterns=allow)
+    root = snapshot_download(HF_DATASET, repo_type="dataset", allow_patterns=allow)
     df = pd.concat([pd.read_parquet(os.path.join(root, a)) for a in allow], ignore_index=True)
     first = np.array([t[0] for t in df["time"]], dtype="int64")
     df["day"] = np.datetime_as_string(first.astype("datetime64[s]"), unit="D")
@@ -317,7 +290,6 @@ class OnsetDataset(IterableDataset):
                         "event_id": s.event_id,
                         "time": int(t[n - 1]),
                         "times": t[n : n + h].tolist(),
-                        "rng_center_km": s.rng_center_km,
                     },
                 }
 

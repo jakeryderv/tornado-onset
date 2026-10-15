@@ -1,9 +1,9 @@
 """The onset model: the published TorNet encoder, fine-tuned, on the observed scans, with the
 authors' head on top.
 
-    observed scans (n_in x 14 channels, polar)
+    observed scans (input_scans x 14 channels, polar)
             |
-    TorNet encoder (fine-tuned), run per scan -> one 384 x 8 x 15 feature map per scan
+    TorNet encoder, run per scan -> one 384 x 8 x 15 feature map per scan
             |
     combiner
       concat       maps side by side in channels (768); one head with `horizons` output maps
@@ -13,23 +13,18 @@ authors' head on top.
     the authors' head: 1x1 convolutions to a per-cell logit map, max over cells
             -> P(tornado at +5), P(tornado at +10)
 
-One loss: weighted cross-entropy on the head's per-horizon logits against the labels of the
-future scans. With `input_scans: 1` the model sees only the newest observed scan (the
-single-scan control); targets and the pre-onset scoping are unchanged. The frozen published detector (the judge) is not part of training; it scores the
-floor (judge on the newest observed scan) and the ceiling (judge on the real future scan) at
-evaluation. A U-Net decoder drawing the future radar as an auxiliary task was tried and dropped:
-on 2015 it cost accuracy, time and half the parameters (see docs/project.md).
+One loss: weighted cross-entropy on the per-horizon logits against the labels of the future
+scans. The frozen published detector (the judge) is not part of training; it scores the floor
+(judge on the newest observed scan) and the ceiling (judge on the real future scan).
 """
 
 from __future__ import annotations
 
-from typing import Any
-
 import torch
 from torch import nn
 
-from tornado_onset.config import Config, resolve_weights
-from tornado_onset.tornet import TorNetEncoder, TorNetHead
+from tornado_onset.config import Config
+from tornado_onset.tornet import TorNetEncoder, TorNetHead, load_state_dict
 
 
 class OnsetModel(nn.Module):
@@ -39,20 +34,16 @@ class OnsetModel(nn.Module):
         super().__init__()
         self.n_in, self.horizons, self.combiner = n_in, horizons, combiner
         self.encoder = TorNetEncoder(start_filters=start_filters)
-        c = self.encoder.out_channels[-1]
+        c = self.encoder.out_channels
         if combiner == "concat":
-            self.feature_channels = c * n_in
-            self.head = TorNetHead(self.feature_channels, out_channels=horizons)
-        elif combiner == "extrapolate":
-            self.feature_channels = c
-            self.head = TorNetHead(c, out_channels=1)
+            self.head = TorNetHead(c * n_in, out_channels=horizons)
         else:
-            raise ValueError(f"unknown combiner {combiner!r}")
+            self.head = TorNetHead(c, out_channels=1)
 
     def scan_features(self, x: torch.Tensor, coords: torch.Tensor) -> torch.Tensor:
         """(B, T, 14, A, R) -> (B, T, C, h, w): the encoder's bottleneck map per scan."""
         b, n = x.shape[:2]
-        f = self.encoder(x.flatten(0, 1), coords.repeat_interleave(n, dim=0))[-1]
+        f = self.encoder(x.flatten(0, 1), coords.repeat_interleave(n, dim=0))
         return f.reshape(b, n, *f.shape[1:])
 
     def extrapolate(
@@ -65,33 +56,22 @@ class OnsetModel(nn.Module):
         return new[:, None] + minutes.view(*minutes.shape, 1, 1, 1) * rate[:, None]
 
     def forward(
-        self,
-        x: torch.Tensor,
-        coords: torch.Tensor,
-        minutes: torch.Tensor | None = None,
-        dt_in: torch.Tensor | None = None,
-    ) -> dict[str, torch.Tensor]:
+        self, x: torch.Tensor, coords: torch.Tensor, minutes: torch.Tensor, dt_in: torch.Tensor
+    ) -> torch.Tensor:
+        """Per-horizon logits, (B, horizons)."""
         per_scan = self.scan_features(x, coords)
         if self.combiner == "concat":
-            feats = per_scan.flatten(1, 2)  # (B, n_in * C, h, w)
-            cls_map = self.head.heat(feats)  # (B, horizons, h, w)
-            return {"cls_map": cls_map, "logits": cls_map.amax(dim=(2, 3)), "features": feats}
-        assert minutes is not None and dt_in is not None, "extrapolate needs the scan timing"
+            return self.head(per_scan.flatten(1, 2))
         future = self.extrapolate(per_scan, minutes, dt_in)  # (B, horizons, C, h, w)
-        b, h = future.shape[:2]
-        cls_map = self.head.heat(future.flatten(0, 1)).reshape(b, h, *future.shape[3:])
-        return {
-            "cls_map": cls_map,
-            "logits": cls_map.amax(dim=(2, 3)),
-            "features": torch.cat([per_scan[:, -1], per_scan[:, -1] - per_scan[:, -2]], dim=1),
-        }
+        return self.head(future.flatten(0, 1)).reshape(x.shape[0], self.horizons)
 
 
 def build_model(cfg: Config) -> OnsetModel:
-    """The model with its encoder (and optionally its head) initialised from the converted
-    published weights."""
-    model = OnsetModel(cfg.input_scans, cfg.horizons, cfg.start_filters, cfg.combiner)
-    sd = torch.load(resolve_weights(cfg.weights), map_location="cpu")
+    """The model with its encoder (and optionally its head) initialised from the published
+    detector's weights."""
+    sd = load_state_dict(cfg.weights)
+    start_filters = int(sd["encoder.blocks.0.0.conv.weight"].shape[0])
+    model = OnsetModel(cfg.input_scans, cfg.horizons, start_filters, cfg.combiner)
     enc = {k.removeprefix("encoder."): v for k, v in sd.items() if k.startswith("encoder.")}
     model.encoder.load_state_dict(enc, strict=True)
     if cfg.head_init == "pretrained":
@@ -102,18 +82,7 @@ def build_model(cfg: Config) -> OnsetModel:
     return model
 
 
-class Losses:
-    """Callable: (model output, batch) -> (total, {term: value})."""
-
-    def __init__(self, cfg: Config, device: torch.device):
-        self.cfg = cfg
-        self.device = device
-        self.bce = nn.BCEWithLogitsLoss(reduction="none")
-
-    def __call__(
-        self, out: dict[str, torch.Tensor], batch: dict[str, Any]
-    ) -> tuple[torch.Tensor, dict[str, float]]:
-        labels = batch["labels"].to(self.device)
-        weight = batch["weight"].to(self.device)[:, None]
-        cls = (self.bce(out["logits"], labels) * weight).mean()
-        return self.cfg.cls_weight * cls, {"cls": cls.item()}
+def onset_loss(logits: torch.Tensor, labels: torch.Tensor, weight: torch.Tensor) -> torch.Tensor:
+    """Sample-weighted binary cross-entropy, mean over samples and horizons."""
+    bce = nn.functional.binary_cross_entropy_with_logits(logits, labels, reduction="none")
+    return (bce * weight[:, None]).mean()
